@@ -26,8 +26,9 @@ This repository implements an Emacs 30 package inspired by the official
   it, implement only enough behavior to pass it, then refactor while green.
 - Keep tests hermetic.  Create fixture packages under temporary directories;
   never require an installed `rbx` executable.
-- Run `make check` before every commit.  This includes ERT, byte compilation,
-  and Checkdoc.
+- Run `guix shell --pure -m manifest.scm -- make check` before every commit.
+  This includes ERT, byte compilation, Checkdoc, and package-lint in an
+  isolated environment.
 - Use Conventional Commits such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`.  Keep commits focused and leave the worktree clean.
 - Do not commit generated `.elc` or autoload files.
@@ -43,4 +44,3 @@ git --git-dir=.git-data --work-tree=. <command>
 ```
 
 If `.git-data` is absent and `.git` is writable, use ordinary Git instead.
-
