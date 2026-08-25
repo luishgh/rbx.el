@@ -14,6 +14,36 @@
     (let ((path (rbx-test-write root "broken.yml" "key: [\n")))
       (should-not (rbx-read-yaml path)))))
 
+(ert-deftest rbx-read-yaml-converts-through-yq-before-native-json-parsing ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "artifact.yml" "ignored: by stub\n"))
+          invocation)
+      (cl-letf (((symbol-function 'process-file)
+                 (lambda (program input destination display &rest arguments)
+                   (setq invocation
+                         (list program input destination display arguments))
+                   (insert "{\"answer\":42,\"disabled\":false}")
+                   0)))
+        (let ((parsed (rbx-read-yaml path)))
+          (should (equal (rbx--wire-field parsed "answer") 42))
+          (should (eq (rbx--wire-field parsed "disabled") :false)))
+        (should (equal invocation
+                       (list rbx-yq-program nil t nil
+                             (list "--input-format=yaml"
+                                   "--output-format=json"
+                                   "--no-colors" "--indent=0"
+                                   "." path))))))))
+
+(ert-deftest rbx-read-yaml-ignores-failed-yq-conversions ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "artifact.yml"
+                                "still: being-written\n")))
+      (cl-letf (((symbol-function 'process-file)
+                 (lambda (&rest _arguments)
+                   (insert "conversion failed")
+                   1)))
+        (should-not (rbx-read-yaml path))))))
+
 (ert-deftest rbx-discover-packages-finds-manifests-but-skips-artifacts ()
   (rbx-test-with-directory root
     (rbx-test-write root "contest/A/problem.rbx.yml" "name: Alpha\n")

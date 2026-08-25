@@ -26,17 +26,18 @@ the package and renders the artifacts that land on disk.
   first split, your window arrangement is reused.
 - Multi-problem discovery and selection for contest projects.
 - Support for custom `buildDir` values from local rbx presets.
-- Version-skew-tolerant YAML readers and correct generated artifact stems.
+- Version-skew-tolerant artifact readers using `yq` and Emacs's native JSON
+  parser, with correct generated artifact stems.
 
 ## Requirements
 
 - Emacs 30.1 or newer (developed and tested on Emacs 30.2)
 - Magit Section 4.1.0 or newer (tested with 4.6.0)
 - Transient 0.7.5 or newer (tested with 0.13.5)
-- yaml.el 1.2.0 or newer (tested with 1.2.4)
+- yq 4.x (tested with 4.53.3)
 
-The dependencies are available from GNU ELPA/nonGNU ELPA and are also declared
-in `manifest.scm` for Guix users.
+The Emacs dependencies are available from GNU ELPA/nonGNU ELPA. All
+dependencies, including `yq`, are declared in `manifest.scm` for Guix users.
 
 ## Installation
 

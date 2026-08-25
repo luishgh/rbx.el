@@ -10,6 +10,9 @@ This repository implements an Emacs 30 package inspired by the official
   cache.
 - Treat `rbx`'s on-disk artifacts as the integration contract.  Keep layout
   knowledge centralized and parse version-skewed YAML tolerantly.
+- Convert YAML artifacts to compact JSON with the external `yq` runtime
+  dependency, then parse them with Emacs's native `json-parse-buffer`.  Keep
+  both `manifest.scm` and `guix.scm` synchronized with that dependency.
 - Preserve the extension's separate channels for declared expectation, actual
   verdict, and whether the two matched.  Do not reimplement verdict aggregation;
   read it from `.rbx/runs/report.yml`.

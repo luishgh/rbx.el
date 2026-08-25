@@ -7,6 +7,11 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Convert YAML artifacts to compact JSON with `yq` and parse them using
+  Emacs's native JSON parser instead of `yaml.el`.
+
 ### Added
 
 - A local `guix.scm` package definition for isolated builds and interactive

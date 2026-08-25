@@ -5,9 +5,9 @@
    "emacs-magit"
    "emacs-package-lint"
    "emacs-transient"
-   "emacs-yaml"
    "emacs"
    "findutils"
    "git"
    "make"
-   "ripgrep"))
+   "ripgrep"
+   "yq"))

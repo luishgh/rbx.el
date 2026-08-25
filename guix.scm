@@ -2,6 +2,7 @@
 
 (use-modules (gnu packages emacs-build)
              (gnu packages emacs-xyz)
+             (gnu packages textutils)
              (guix build-system emacs)
              (guix gexp)
              (guix git-download)
@@ -19,7 +20,7 @@
                #:select? (git-predicate (current-source-directory))))
   (build-system emacs-build-system)
   (native-inputs (list emacs-package-lint))
-  (propagated-inputs (list emacs-magit emacs-transient emacs-yaml))
+  (propagated-inputs (list emacs-magit emacs-transient yq))
   (home-page "https://github.com/luishgh/rbx-for-emacs")
   (synopsis "Inspect rbx runs and testsets from Emacs")
   (description

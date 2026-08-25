@@ -5,7 +5,7 @@
 ;; Author: rbx-for-emacs contributors
 ;; Maintainer: rbx-for-emacs contributors
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1") (yaml "1.2.0"))
+;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: tools, languages
 ;; URL: https://github.com/luishgh/rbx-for-emacs
 
@@ -362,7 +362,7 @@ verdict is not."
      :deps (rbx--model-strings raw "deps")
      :subgroups (rbx--model-strings raw "subgroups")
      :vars (let ((vars (rbx--model-field raw "vars")))
-             (if (rbx--wire-mapping-p vars) vars nil)))))
+             (rbx--wire-mapping-entries vars)))))
 
 (defun rbx--parse-validation-result (raw)
   "Parse RAW as a testcase validation result, or return nil."
@@ -413,8 +413,8 @@ verdict is not."
   "Parse RAW as one group's constraint coverage, or return nil."
   (when-let ((group (rbx--model-string raw "group")))
     (let (bounds)
-      (dolist (item (let ((value (rbx--model-field raw "bounds")))
-                      (and (rbx--wire-mapping-p value) value)))
+      (dolist (item (rbx--wire-mapping-entries
+                     (rbx--model-field raw "bounds")))
         (when-let ((parsed (rbx--parse-variable-bounds (cdr item))))
           (push (cons (car item) parsed) bounds)))
       (rbx-group-bounds-create

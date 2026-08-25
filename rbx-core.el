@@ -5,7 +5,7 @@
 ;; Author: rbx-for-emacs contributors
 ;; Maintainer: rbx-for-emacs contributors
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1") (yaml "1.2.0"))
+;; Package-Requires: ((emacs "30.1"))
 ;; Keywords: tools, languages
 ;; URL: https://github.com/luishgh/rbx-for-emacs
 
@@ -19,8 +19,8 @@
 
 (require 'cl-lib)
 (require 'filenotify)
+(require 'json)
 (require 'subr-x)
-(require 'yaml)
 
 (defgroup rbx nil
   "Inspect rbx artifacts from Emacs."
@@ -30,6 +30,11 @@
 (defcustom rbx-refresh-delay 0.2
   "Seconds to debounce artifact changes before refreshing a view."
   :type 'number
+  :group 'rbx)
+
+(defcustom rbx-yq-program "yq"
+  "Program used to convert rbx YAML artifacts to JSON."
+  :type 'string
   :group 'rbx)
 
 (defconst rbx-problem-manifest "problem.rbx.yml"
@@ -66,38 +71,55 @@ BUILD-DIR is the build directory relative to ROOT."
   (clrhash rbx--build-directory-cache))
 
 (defun rbx-read-yaml (path)
-  "Read YAML from PATH as string-keyed alists and lists.
+  "Convert YAML at PATH with `rbx-yq-program' and read its JSON.
 
 Return nil when PATH is missing, unreadable, empty, or temporarily invalid.
 This tolerance is important because artifact files can be observed between a
 truncate and the completing rename or write."
   (condition-case nil
       (when (file-readable-p path)
-        (let ((contents (with-temp-buffer
-                          (insert-file-contents path)
-                          (buffer-string))))
-          (unless (string-empty-p (string-trim contents))
-            (yaml-parse-string contents
-                               :object-type 'alist
-                               :object-key-type 'string
-                               :sequence-type 'list
-                               :null-object nil
-                               :false-object :false))))
+        (with-temp-buffer
+          (when (zerop
+                 (process-file rbx-yq-program nil t nil
+                               "--input-format=yaml"
+                               "--output-format=json"
+                               "--no-colors" "--indent=0"
+                               "." (expand-file-name path)))
+            (goto-char (point-min))
+            (unless (eobp)
+              (json-parse-buffer :object-type 'alist
+                                 :array-type 'list
+                                 :null-object nil
+                                 :false-object :false)))))
     (error nil)))
 
 (defun rbx--wire-mapping-p (value)
-  "Return non-nil when VALUE is a string-keyed alist."
+  "Return non-nil when VALUE is a string- or symbol-keyed alist."
   (and (listp value)
        value
        (cl-every (lambda (item)
-                   (and (consp item) (stringp (car item))))
+                   (and (consp item)
+                        (or (stringp (car item))
+                            (symbolp (car item)))))
                  value)))
 
 (defun rbx--wire-get (mapping key &optional default)
   "Read KEY from MAPPING, returning DEFAULT when it is absent."
   (if (rbx--wire-mapping-p mapping)
-      (alist-get key mapping default nil #'equal)
+      (if-let ((item (assoc-string key mapping)))
+          (cdr item)
+        default)
     default))
+
+(defun rbx--wire-mapping-entries (value)
+  "Return VALUE's entries with normalized string keys."
+  (when (rbx--wire-mapping-p value)
+    (mapcar (lambda (item)
+              (cons (if (symbolp (car item))
+                        (symbol-name (car item))
+                      (car item))
+                    (cdr item)))
+            value)))
 
 (defun rbx--wire-field (root &rest keys)
   "Read a nested field below ROOT by following string KEYS."
