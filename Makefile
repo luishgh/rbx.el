@@ -2,7 +2,7 @@ EMACS ?= emacs
 BATCH = $(EMACS) -Q --batch -L . -L test
 ELISP = rbx-core.el rbx-model.el rbx-ui.el rbx.el
 
-.PHONY: test compile checkdoc check clean
+.PHONY: test compile checkdoc package-lint check clean
 
 test:
 	$(BATCH) -l test/test-helper.el \
@@ -18,7 +18,12 @@ compile:
 checkdoc:
 	$(BATCH) --eval "(progn (require 'checkdoc) (dolist (file command-line-args-left) (checkdoc-file file)))" $(ELISP)
 
-check: clean test compile checkdoc clean
+package-lint:
+	$(BATCH) -l test/package-lint-helper.el -l package-lint \
+	  -f package-lint-batch-and-exit rbx.el
+
+check: clean test compile checkdoc package-lint
+	$(MAKE) clean
 
 clean:
 	find . -name '*.elc' -delete

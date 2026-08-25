@@ -7,7 +7,7 @@
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "30.1") (yaml "1.2.0"))
 ;; Keywords: tools, languages
-;; URL: https://github.com/rsalesc/rbx
+;; URL: https://github.com/luishgh/rbx-for-emacs
 
 ;;; Commentary:
 
