@@ -44,5 +44,32 @@
     (rbx-mode -1)
     (should-not (memq #'rbx-flymake-backend flymake-diagnostic-functions))))
 
+(ert-deftest rbx-mode-refreshes-diagnostics-after-artifact-changes ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "sols/main.cpp" "int main() {}\n"))
+          callback
+          stopped
+          (starts 0))
+      (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-watch-package)
+                       (lambda (_package function)
+                         (setq callback function)
+                         'watcher))
+                      ((symbol-function 'rbx-stop-watcher)
+                       (lambda (watcher) (setq stopped watcher)))
+                      ((symbol-function 'flymake-start)
+                       (lambda (&rest _args) (cl-incf starts))))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should callback)
+                (let ((before starts))
+                  (funcall callback)
+                  (should (= starts (1+ before))))
+                (rbx-mode -1)
+                (should (eq stopped 'watcher))))
+          (kill-buffer buffer))))))
+
 (provide 'rbx-test)
 ;;; rbx-test.el ends here

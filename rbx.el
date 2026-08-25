@@ -1,12 +1,11 @@
-;;; rbx.el --- Inspect rbx runs and testsets in Emacs -*- lexical-binding: t; -*-
+;;; rbx.el --- Inspect rbx runs and testsets -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 rbx-for-emacs contributors
 
 ;; Author: rbx-for-emacs contributors
 ;; Maintainer: rbx-for-emacs contributors
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "30.1") (magit-section "4.1.0")
-;;                    (transient "0.8.0") (yaml "1.2.0"))
+;; Package-Requires: ((emacs "30.1") (magit-section "4.1.0") (transient "0.7.5") (yaml "1.2.0"))
 ;; Keywords: tools, languages
 ;; URL: https://github.com/luishgh/rbx-for-emacs
 
@@ -33,6 +32,11 @@
 (defvar-keymap rbx-mode-map
   :doc "Keymap for `rbx-mode'."
   "C-c r" #'rbx-dispatch)
+
+(defvar-local rbx--diagnostics-watcher nil
+  "Artifact watcher used to refresh Flymake diagnostics.")
+
+(defvar rbx-mode)
 
 (defun rbx--same-file-p (left right)
   "Return non-nil when LEFT and RIGHT name the same local file."
@@ -81,6 +85,30 @@
               (push (rbx--warning-diagnostic warning) diagnostics))))))
     (funcall report-fn (nreverse diagnostics))))
 
+(defun rbx--stop-diagnostics-watcher ()
+  "Stop the current buffer's diagnostics watcher."
+  (when rbx--diagnostics-watcher
+    (rbx-stop-watcher rbx--diagnostics-watcher)
+    (setq rbx--diagnostics-watcher nil)))
+
+(defun rbx--start-diagnostics-watcher ()
+  "Start or replace the current buffer's diagnostics watcher."
+  (rbx--stop-diagnostics-watcher)
+  (when-let ((package (and buffer-file-name (rbx-find-package))))
+    (let ((buffer (current-buffer)))
+      (setq rbx--diagnostics-watcher
+            (rbx-watch-package
+             package
+             (lambda ()
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (when rbx-mode
+                     ;; Re-register after directory creation so a run that
+                     ;; started from an empty package becomes recursively
+                     ;; visible without polling.
+                     (rbx--start-diagnostics-watcher)
+                     (flymake-start))))))))))
+
 ;;;###autoload
 (define-minor-mode rbx-mode
   "Integrate the current rbx package with Emacs.
@@ -94,10 +122,14 @@ recent run available to Flymake."
   (if rbx-mode
       (when rbx-compilation-diagnostics
         (add-hook 'flymake-diagnostic-functions #'rbx-flymake-backend nil t)
+        (add-hook 'kill-buffer-hook #'rbx--stop-diagnostics-watcher nil t)
+        (rbx--start-diagnostics-watcher)
         (when buffer-file-name
           (flymake-mode 1)
           (flymake-start)))
-    (remove-hook 'flymake-diagnostic-functions #'rbx-flymake-backend t)))
+    (remove-hook 'flymake-diagnostic-functions #'rbx-flymake-backend t)
+    (remove-hook 'kill-buffer-hook #'rbx--stop-diagnostics-watcher t)
+    (rbx--stop-diagnostics-watcher)))
 
 (provide 'rbx)
 ;;; rbx.el ends here
