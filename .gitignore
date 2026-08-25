@@ -1,0 +1,6 @@
+.direnv/
+.env/
+.git-data/
+*.elc
+*-autoloads.el
+
