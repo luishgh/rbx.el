@@ -7,6 +7,11 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Give run verdicts and expectations explicit VS Code-derived colours on clean
+  or limited themes, including restrained mismatch and warning row washes.
+
 ## [0.1.0] - 2026-08-25
 
 ### Added

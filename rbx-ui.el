@@ -42,64 +42,152 @@ adjusted by the user remains intact."
   :type '(choice (const below) (const beside))
   :group 'rbx)
 
+(defface rbx-hue-green
+  '((((class color) (background light)) :foreground "#388a34")
+    (((class color) (background dark)) :foreground "#89d185")
+    (t :foreground "green"))
+  "Green used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-red
+  '((((class color) (background light)) :foreground "#e51400")
+    (((class color) (background dark)) :foreground "#f14c4c")
+    (t :foreground "red"))
+  "Red used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-yellow
+  '((((class color) (background light)) :foreground "#bf8803")
+    (((class color) (background dark)) :foreground "#cca700")
+    (t :foreground "yellow"))
+  "Yellow used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-blue
+  '((((class color) (background light)) :foreground "#007acc")
+    (((class color) (background dark)) :foreground "#75beff")
+    (t :foreground "blue"))
+  "Blue used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-purple
+  '((((class color) (background light)) :foreground "#652d90")
+    (((class color) (background dark)) :foreground "#b180d7")
+    (t :foreground "magenta"))
+  "Purple used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-orange
+  '((((class color) (background light)) :foreground "#d18616")
+    (((class color) (background dark)) :foreground "#d18616")
+    (t :foreground "yellow"))
+  "Orange used by the VS Code extension's charts palette."
+  :group 'rbx)
+
+(defface rbx-hue-dim
+  '((((class color) (background light)) :foreground "#717171")
+    (((class color) (background dark)) :foreground "#9d9d9d")
+    (t :foreground "gray50"))
+  "Dim foreground corresponding to VS Code's description foreground."
+  :group 'rbx)
+
+(defface rbx-hue-neutral
+  '((t :inherit default))
+  "Neutral foreground corresponding to VS Code's normal foreground."
+  :group 'rbx)
+
 (defface rbx-expected-accepted
-  '((t :inherit success))
+  '((t :inherit rbx-hue-green))
   "Face for a solution declared accepted."
   :group 'rbx)
 
 (defface rbx-expected-incorrect
-  '((t :inherit error))
+  '((t :inherit rbx-hue-red))
   "Face for a solution declared incorrect."
   :group 'rbx)
 
 (defface rbx-expected-slow
-  '((t :inherit warning))
+  '((t :inherit rbx-hue-yellow))
   "Face for a solution declared slow."
   :group 'rbx)
 
 (defface rbx-expected-error
-  '((t :inherit font-lock-keyword-face))
+  '((t :inherit rbx-hue-blue))
   "Face for a solution declared to fail with an error."
   :group 'rbx)
 
 (defface rbx-expected-other
-  '((t :inherit font-lock-constant-face))
+  '((t :inherit rbx-hue-purple))
   "Face for other declared outcomes."
   :group 'rbx)
 
+(defface rbx-expected-neutral
+  '((t :inherit rbx-hue-neutral))
+  "Face for ANY and unknown declared outcomes."
+  :group 'rbx)
+
 (defface rbx-outcome-accepted
-  '((t :inherit success :weight bold))
+  '((t :inherit rbx-hue-green :weight bold))
   "Face for accepted testcase verdicts."
   :group 'rbx)
 
 (defface rbx-outcome-wrong
-  '((t :inherit error :weight bold))
+  '((t :inherit rbx-hue-red :weight bold))
   "Face for wrong-answer testcase verdicts."
   :group 'rbx)
 
 (defface rbx-outcome-limit
-  '((t :inherit warning :weight bold))
-  "Face for time, memory, and output limit verdicts."
+  '((t :inherit rbx-hue-yellow :weight bold))
+  "Face for time, idleness, and memory limit verdicts."
   :group 'rbx)
 
 (defface rbx-outcome-error
-  '((t :inherit font-lock-keyword-face :weight bold))
+  '((t :inherit rbx-hue-blue :weight bold))
   "Face for runtime and compilation error verdicts."
   :group 'rbx)
 
+(defface rbx-outcome-output-limit
+  '((t :inherit rbx-hue-orange :weight bold))
+  "Face for output limit verdicts."
+  :group 'rbx)
+
 (defface rbx-outcome-internal
-  '((t :inherit font-lock-constant-face :weight bold))
+  '((t :inherit rbx-hue-purple :weight bold))
   "Face for judge and internal failures."
   :group 'rbx)
 
+(defface rbx-outcome-dim
+  '((t :inherit rbx-hue-dim))
+  "Face for pending and skipped testcase verdicts."
+  :group 'rbx)
+
+(defface rbx-match
+  '((t :inherit rbx-hue-green))
+  "Face for a declaration met by a run."
+  :group 'rbx)
+
 (defface rbx-mismatch
-  '((t :inherit error :weight bold))
+  '((t :inherit rbx-hue-red :weight bold))
   "Face for a declaration missed by a run."
   :group 'rbx)
 
 (defface rbx-warning
-  '((t :inherit warning :weight bold))
+  '((t :inherit rbx-hue-yellow :weight bold))
   "Face for a passing run that still carries a warning."
+  :group 'rbx)
+
+(defface rbx-row-mismatch
+  '((((class color) (background light)) :background "#fdecec" :extend t)
+    (((class color) (background dark)) :background "#2f2222" :extend t)
+    (t :inherit default))
+  "Eight-percent red wash used only on missed-expectation rows."
+  :group 'rbx)
+
+(defface rbx-row-warning
+  '((((class color) (background light)) :background "#fcfaf0" :extend t)
+    (((class color) (background dark)) :background "#28261c" :extend t)
+    (t :inherit default))
+  "Six-percent yellow wash used only on warned rows."
   :group 'rbx)
 
 (defconst rbx--outcome-short-names
@@ -115,6 +203,21 @@ adjusted by the user remains intact."
     ("internal-error" . "IE")
     ("compilation-error" . "CE"))
   "Display names for actual rbx outcomes.")
+
+(defconst rbx--expectation-display
+  '(("ANY" :label "ANY" :face rbx-expected-neutral :bold t)
+    ("ACCEPTED" :label "AC" :face rbx-expected-accepted :bold t)
+    ("ACCEPTED_OR_TLE" :label "AC or TLE" :face rbx-expected-accepted)
+    ("WRONG_ANSWER" :label "WA" :face rbx-expected-incorrect)
+    ("INCORRECT" :label "INCORRECT" :face rbx-expected-incorrect)
+    ("RUNTIME_ERROR" :label "RTE" :face rbx-expected-error)
+    ("TIME_LIMIT_EXCEEDED" :label "TLE" :face rbx-expected-slow)
+    ("MEMORY_LIMIT_EXCEEDED" :label "MLE" :face rbx-expected-slow)
+    ("OUTPUT_LIMIT_EXCEEDED" :label "OLE" :face rbx-expected-other)
+    ("TLE_OR_RTE" :label "TLE or RTE" :face rbx-expected-slow)
+    ("JUDGE_FAILED" :label "FL" :face rbx-expected-other)
+    ("COMPILATION_ERROR" :label "CE" :face rbx-expected-error))
+  "Labels and hues for declared rbx outcomes.")
 
 (defclass rbx-root-section (magit-section) ())
 (defclass rbx-solution-section (magit-section) ())
@@ -171,30 +274,43 @@ adjusted by the user remains intact."
 (defun rbx--outcome-face (outcome)
   "Return the display face for actual OUTCOME."
   (cond
+   ((or (null outcome) (equal outcome "skipped")) 'rbx-outcome-dim)
    ((equal outcome "accepted") 'rbx-outcome-accepted)
    ((equal outcome "wrong-answer") 'rbx-outcome-wrong)
    ((member outcome '("time-limit-exceeded" "idleness-limit-exceeded"
-                      "memory-limit-exceeded" "output-limit-exceeded"))
+                      "memory-limit-exceeded"))
     'rbx-outcome-limit)
+   ((equal outcome "output-limit-exceeded") 'rbx-outcome-output-limit)
    ((member outcome '("runtime-error" "compilation-error"))
     'rbx-outcome-error)
-   ((member outcome '("judge-failed" "internal-error"))
-    'rbx-outcome-internal)
-   (t 'shadow)))
+   (t 'rbx-outcome-internal)))
+
+(defun rbx--expectation-properties (outcome)
+  "Return display properties for declared OUTCOME."
+  (cdr (assoc (or outcome "ANY") rbx--expectation-display)))
+
+(defun rbx--expectation-label (outcome)
+  "Return the VS Code extension's label for declared OUTCOME."
+  (or (plist-get (rbx--expectation-properties outcome) :label)
+      outcome
+      "ANY"))
 
 (defun rbx--expected-face (outcome)
   "Return the face for declared OUTCOME."
-  (cond
-   ((member outcome '("ACCEPTED" "ACCEPTED_OR_TLE"))
-    'rbx-expected-accepted)
-   ((member outcome '("WRONG_ANSWER" "INCORRECT"))
-    'rbx-expected-incorrect)
-   ((member outcome '("TIME_LIMIT_EXCEEDED" "MEMORY_LIMIT_EXCEEDED"
-                      "TLE_OR_RTE"))
-    'rbx-expected-slow)
-   ((member outcome '("RUNTIME_ERROR" "COMPILATION_ERROR"))
-    'rbx-expected-error)
-   (t 'rbx-expected-other)))
+  (or (plist-get (rbx--expectation-properties outcome) :face)
+      'rbx-expected-neutral))
+
+(defun rbx--expected-face-value (outcome)
+  "Return a face value encoding OUTCOME's hue and emphasis."
+  (let ((face (rbx--expected-face outcome)))
+    (if (plist-get (rbx--expectation-properties outcome) :bold)
+        (list face 'bold)
+      face)))
+
+(defun rbx--expected (outcome)
+  "Return a propertized label for declared OUTCOME."
+  (propertize (rbx--expectation-label outcome)
+              'face (rbx--expected-face-value outcome)))
 
 (defun rbx-format-time (seconds)
   "Format SECONDS the same way as the rbx terminal UI."
@@ -272,7 +388,24 @@ adjusted by the user remains intact."
   (cond
    ((not matches) (propertize "✗" 'face 'rbx-mismatch))
    (warning (propertize "▲" 'face 'rbx-warning))
-   (t (propertize "✓" 'face 'success))))
+   (t (propertize "✓" 'face 'rbx-match))))
+
+(defun rbx--row-state (matches warning)
+  "Return the row emphasis state for MATCHES and WARNING."
+  (cond
+   ((not matches) 'missed)
+   (warning 'warned)
+   (t 'met)))
+
+(defun rbx--decorate-row (line state)
+  "Apply STATE's reserved background wash to LINE."
+  (let ((decorated (copy-sequence line))
+        (face (pcase state
+                ('missed 'rbx-row-mismatch)
+                ('warned 'rbx-row-warning))))
+    (when face
+      (add-face-text-property 0 (length decorated) face t decorated))
+    decorated))
 
 (defun rbx--actual (outcome)
   "Return propertized actual OUTCOME text."
@@ -325,6 +458,10 @@ adjusted by the user remains intact."
     (package solution group entries evaluations solution-report)
   "Insert GROUP and its ENTRIES for SOLUTION in PACKAGE."
   (let* ((group-report (rbx--report-for-group solution-report group))
+         (warning
+          (and group-report
+               (or (rbx-group-report-run-under-double-tl group-report)
+                   (rbx-group-report-sanitizer-warnings group-report))))
          (group-evaluations
           (seq-filter (lambda (pair)
                         (equal (rbx-testcase-group (car pair)) group))
@@ -334,19 +471,31 @@ adjusted by the user remains intact."
     (magit-insert-section (rbx-group-section context)
       (magit-insert-heading
        (if group-report
-           (format "  %s  %s  got %s  %s\n"
-                   (rbx--match-marker
-                    (rbx-group-report-matches-expectation group-report)
-                    (or (rbx-group-report-run-under-double-tl group-report)
-                        (rbx-group-report-sanitizer-warnings group-report)))
-                   group
-                   (rbx--actual (rbx-group-report-outcome group-report))
-                   (rbx--meta
-                    (rbx--score (rbx-group-report-score group-report)
-                                (rbx-group-report-max-score group-report))
-                    (rbx-format-time (rbx-group-report-max-time group-report))
-                    (rbx-format-memory
-                     (rbx-group-report-max-memory group-report))))
+           (rbx--decorate-row
+            (format "  %s  %s  %s  %s\n"
+                    (rbx--match-marker
+                     (rbx-group-report-matches-expectation group-report)
+                     warning)
+                    group
+                    (if-let ((expected
+                              (rbx-group-report-expected-outcome group-report)))
+                        (format "declared %s → got %s"
+                                (rbx--expected expected)
+                                (rbx--actual
+                                 (rbx-group-report-outcome group-report)))
+                      (format "got %s"
+                              (rbx--actual
+                               (rbx-group-report-outcome group-report))))
+                    (rbx--meta
+                     (rbx--score (rbx-group-report-score group-report)
+                                 (rbx-group-report-max-score group-report))
+                     (rbx-format-time
+                      (rbx-group-report-max-time group-report))
+                     (rbx-format-memory
+                      (rbx-group-report-max-memory group-report))))
+            (rbx--row-state
+             (rbx-group-report-matches-expectation group-report)
+             warning))
          (format "  … %s  %d/%d\n" group (car progress) (cdr progress))))
       (dolist (entry entries)
         (rbx--insert-run-testcase package solution entry
@@ -367,34 +516,40 @@ adjusted by the user remains intact."
     (magit-insert-section (rbx-solution-section context)
       (magit-insert-heading
        (if solution-report
-           (format "%s %s  declared %s  got %s  %s\n"
-                   (rbx--match-marker
-                    (rbx-solution-report-matches-expectation solution-report)
-                    warning)
-                   (propertize
-                    (rbx--solution-label solution
-                                         (rbx-skeleton-solutions skeleton))
-                    'face (rbx--expected-face
-                           (rbx-solution-expected-outcome solution)))
-                   (or (rbx-solution-expected-outcome solution) "ANY")
-                   (rbx--actual (rbx-solution-report-outcome solution-report))
-                   (rbx--meta
-                    (rbx--score (rbx-solution-report-score solution-report)
-                                (rbx-solution-report-max-score solution-report))
-                    (rbx-format-time
-                     (rbx-solution-report-max-time solution-report))
-                    (rbx-format-memory
-                     (rbx-solution-report-max-memory solution-report))
-                    (unless (equal (rbx-solution-report-status solution-report)
-                                   "OK")
-                      (rbx-solution-report-status solution-report))))
+           (rbx--decorate-row
+            (format "%s %s  declared %s → got %s  %s\n"
+                    (rbx--match-marker
+                     (rbx-solution-report-matches-expectation solution-report)
+                     warning)
+                    (propertize
+                     (rbx--solution-label solution
+                                          (rbx-skeleton-solutions skeleton))
+                     'face (rbx--expected-face-value
+                            (rbx-solution-expected-outcome solution)))
+                    (rbx--expected (rbx-solution-expected-outcome solution))
+                    (rbx--actual
+                     (rbx-solution-report-outcome solution-report))
+                    (rbx--meta
+                     (rbx--score (rbx-solution-report-score solution-report)
+                                 (rbx-solution-report-max-score solution-report))
+                     (rbx-format-time
+                      (rbx-solution-report-max-time solution-report))
+                     (rbx-format-memory
+                      (rbx-solution-report-max-memory solution-report))
+                     (unless
+                         (equal (rbx-solution-report-status solution-report)
+                                "OK")
+                       (rbx-solution-report-status solution-report))))
+            (rbx--row-state
+             (rbx-solution-report-matches-expectation solution-report)
+             warning))
          (format "… %s  declared %s  %d/%d\n"
                  (propertize
                   (rbx--solution-label solution
                                        (rbx-skeleton-solutions skeleton))
-                  'face (rbx--expected-face
+                  'face (rbx--expected-face-value
                          (rbx-solution-expected-outcome solution)))
-                 (or (rbx-solution-expected-outcome solution) "ANY")
+                 (rbx--expected (rbx-solution-expected-outcome solution))
                  (car progress) (cdr progress))))
       (dolist (group (rbx-skeleton-ordered-groups skeleton))
         (rbx--insert-run-group
@@ -407,18 +562,23 @@ adjusted by the user remains intact."
     (magit-insert-section (rbx-compilation-section nil)
       (magit-insert-heading (length findings) "Compilation findings")
       (dolist (finding findings)
-        (let ((context (list :kind 'compilation
-                             :package package :finding finding)))
+        (let* ((context (list :kind 'compilation
+                              :package package :finding finding))
+               (failed (equal (rbx-compilation-status finding) "FAILED"))
+               (expected (rbx-compilation-expected-outcome finding)))
           (magit-insert-section (rbx-compilation-section context)
             (magit-insert-heading
-             (format "  %s %s  declared %s%s\n"
-                     (if (equal (rbx-compilation-status finding) "FAILED")
-                         (propertize "✗" 'face 'rbx-mismatch)
-                       (propertize "▲" 'face 'rbx-warning))
-                     (rbx-compilation-path finding)
-                     (or (rbx-compilation-expected-outcome finding) "ANY")
-                     (if-let ((reason (rbx-compilation-reason finding)))
-                         (concat "  " reason) "")))
+             (rbx--decorate-row
+              (format "  %s %s  declared %s%s\n"
+                      (if failed
+                          (propertize "✗" 'face 'rbx-mismatch)
+                        (propertize "▲" 'face 'rbx-warning))
+                      (propertize (rbx-compilation-path finding)
+                                  'face (rbx--expected-face-value expected))
+                      (rbx--expected expected)
+                      (if-let ((reason (rbx-compilation-reason finding)))
+                          (concat "  " reason) ""))
+              (if failed 'missed 'warned)))
             (dolist (warning (rbx-compilation-warnings finding))
               (magit-insert-section
                   (rbx-warning-section

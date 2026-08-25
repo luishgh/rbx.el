@@ -17,6 +17,43 @@
   (should (equal (rbx-format-memory 1024) "1 KiB"))
   (should (equal (rbx-format-memory 1048576) "1 MiB")))
 
+(ert-deftest rbx-verdict-palette-matches-vscode-hues ()
+  (should (eq (rbx--outcome-face "accepted") 'rbx-outcome-accepted))
+  (should (eq (rbx--outcome-face "wrong-answer") 'rbx-outcome-wrong))
+  (should (eq (rbx--outcome-face "time-limit-exceeded")
+              'rbx-outcome-limit))
+  (should (eq (rbx--outcome-face "runtime-error") 'rbx-outcome-error))
+  (should (eq (rbx--outcome-face "output-limit-exceeded")
+              'rbx-outcome-output-limit))
+  (should (eq (rbx--outcome-face "judge-failed")
+              'rbx-outcome-internal))
+  (should (eq (rbx--outcome-face "skipped") 'rbx-outcome-dim))
+  (should (eq (rbx--outcome-face nil) 'rbx-outcome-dim)))
+
+(ert-deftest rbx-expectation-palette-uses-vscode-labels ()
+  (should (equal (rbx--expectation-label "ACCEPTED") "AC"))
+  (should (equal (rbx--expectation-label "ACCEPTED_OR_TLE") "AC or TLE"))
+  (should (equal (rbx--expectation-label "WRONG_ANSWER") "WA"))
+  (should (equal (rbx--expectation-label "TLE_OR_RTE") "TLE or RTE"))
+  (should (equal (rbx--expectation-label "future-outcome")
+                 "future-outcome"))
+  (should (eq (rbx--expected-face "OUTPUT_LIMIT_EXCEEDED")
+              'rbx-expected-other))
+  (should (eq (rbx--expected-face "future-outcome")
+              'rbx-expected-neutral)))
+
+(ert-deftest rbx-status-washes-rank-misses-above-warnings ()
+  (should (eq (rbx--row-state nil t) 'missed))
+  (should (eq (rbx--row-state t t) 'warned))
+  (should (eq (rbx--row-state t nil) 'met)))
+
+(ert-deftest rbx-palette-has-clean-slate-foregrounds ()
+  (dolist (face '(rbx-hue-green rbx-hue-red rbx-hue-yellow rbx-hue-blue
+                  rbx-hue-purple rbx-hue-orange rbx-hue-dim))
+    (let ((foreground (face-attribute face :foreground nil t)))
+      (should (stringp foreground))
+      (should-not (equal foreground "unspecified-fg")))))
+
 (ert-deftest rbx-render-run-keeps-declared-actual-and-match-channels-separate ()
   (rbx-test-with-directory root
     (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
@@ -49,7 +86,7 @@
         (setq-local rbx--view 'run)
         (rbx-refresh)
         (let ((text (buffer-substring-no-properties (point-min) (point-max))))
-          (should (string-match-p "✗.*wa\\.cpp.*declared WRONG_ANSWER.*got AC"
+          (should (string-match-p "✗.*wa\\.cpp.*declared WA.*got AC"
                                   text))
           (should (string-match-p "UNEXPECTED_VERDICTS" text))
           (should (string-match-p "000.*AC.*10 ms.*2 KiB" text)))))))
