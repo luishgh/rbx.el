@@ -14,6 +14,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Cache unchanged parsed artifacts and defer testcase evaluation parsing until
+  its collapsed run group is expanded, substantially reducing run-view latency.
 - Route run-view verdict styling through Magit Section's font-lock face
   properties so semantic colours are actually displayed in section headings.
 - Give run verdicts and expectations explicit VS Code-derived colours on clean

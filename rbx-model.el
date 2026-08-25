@@ -104,6 +104,40 @@
 (defconst rbx--model-missing (make-symbol "rbx-missing")
   "Sentinel used to distinguish a missing field from YAML false or null.")
 
+(defvar rbx--artifact-cache (make-hash-table :test #'equal)
+  "Parsed artifacts keyed by their absolute paths and file identities.")
+
+(defun rbx-reset-artifact-cache ()
+  "Forget all parsed rbx artifacts cached by this Emacs process."
+  (interactive)
+  (clrhash rbx--artifact-cache))
+
+(defun rbx--artifact-file-state (path)
+  "Return a change-sensitive identity for the artifact at PATH."
+  (when-let ((attributes (ignore-errors (file-attributes path 'string))))
+    (list (file-attribute-file-identifier attributes)
+          (file-attribute-size attributes)
+          (file-attribute-modification-time attributes))))
+
+(defun rbx--load-artifact (path parser)
+  "Read PATH with PARSER, reusing an unchanged parsed artifact."
+  (let* ((absolute (expand-file-name path))
+         (state (rbx--artifact-file-state absolute))
+         (missing (make-symbol "missing"))
+         (cached (gethash absolute rbx--artifact-cache missing)))
+    (cond
+     ((null state)
+      (remhash absolute rbx--artifact-cache)
+      nil)
+     ((and (not (eq cached missing)) (equal state (car cached)))
+      (cdr cached))
+     (t
+      (let ((parsed (funcall parser (rbx-read-yaml absolute))))
+        (if parsed
+            (puthash absolute (cons state parsed) rbx--artifact-cache)
+          (remhash absolute rbx--artifact-cache))
+        parsed)))))
+
 (defun rbx--model-field (root &rest keys)
   "Read string KEYS below ROOT, preserving missing-field information."
   (let ((current root))
@@ -454,23 +488,23 @@ verdict is not."
 
 (defun rbx-load-skeleton (package)
   "Read PACKAGE's current skeleton artifact."
-  (rbx-parse-skeleton (rbx-read-yaml (rbx-skeleton-path package))))
+  (rbx--load-artifact (rbx-skeleton-path package) #'rbx-parse-skeleton))
 
 (defun rbx-load-report (package)
   "Read PACKAGE's current supported run report."
-  (rbx-parse-report (rbx-read-yaml (rbx-report-path package))))
+  (rbx--load-artifact (rbx-report-path package) #'rbx-parse-report))
 
 (defun rbx-load-evaluation (package solution-index testcase)
   "Read one evaluation for PACKAGE, SOLUTION-INDEX, and TESTCASE."
-  (rbx-parse-evaluation
-   (rbx-read-yaml
-    (rbx-run-artifact-path package solution-index
-                           (rbx-testcase-group testcase)
-                           (rbx-testcase-stem testcase) ".eval"))))
+  (rbx--load-artifact
+   (rbx-run-artifact-path package solution-index
+                          (rbx-testcase-group testcase)
+                          (rbx-testcase-stem testcase) ".eval")
+   #'rbx-parse-evaluation))
 
 (defun rbx-load-testset (package)
   "Read PACKAGE's current testset manifest."
-  (rbx-parse-testset (rbx-read-yaml (rbx-testset-path package))))
+  (rbx--load-artifact (rbx-testset-path package) #'rbx-parse-testset))
 
 (provide 'rbx-model)
 ;;; rbx-model.el ends here

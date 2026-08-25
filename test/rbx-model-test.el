@@ -80,6 +80,36 @@
     (should (= (rbx-evaluation-memory evaluation) 4096))
     (should (rbx-evaluation-sanitizer-warnings evaluation))))
 
+(ert-deftest rbx-load-evaluation-caches-unchanged-artifact ()
+  (rbx-test-with-directory root
+    (let* ((package (rbx-package-create
+                     :root (file-name-as-directory root)
+                     :build-dir "build"))
+           (testcase (rbx-testcase-create :group "main" :index 0))
+           (relative ".rbx/runs/0/main/000.eval")
+           (reads 0)
+           (reader (symbol-function 'rbx-read-yaml)))
+      (rbx-test-write root relative
+                      "result: {outcome: accepted}\nlog: {time: 0.01}\n")
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (path)
+                   (cl-incf reads)
+                   (funcall reader path))))
+        (should (equal (rbx-evaluation-outcome
+                        (rbx-load-evaluation package 0 testcase))
+                       "accepted"))
+        (should (equal (rbx-evaluation-outcome
+                        (rbx-load-evaluation package 0 testcase))
+                       "accepted"))
+        (should (= reads 1))
+        (rbx-test-write root relative
+                        "result: {outcome: wrong-answer}\nlog: {time: 0.02}\n")
+        (should (equal (rbx-evaluation-outcome
+                        (rbx-load-evaluation package 0 testcase))
+                       "wrong-answer"))
+        (should (= reads 2))))))
+
 (ert-deftest rbx-parse-report-rejects-unknown-versions ()
   (should-not (rbx-parse-report '(("version" . 2) ("solutions" . nil)))))
 

@@ -84,39 +84,55 @@
         (rbx-view-mode)
         (setq-local rbx--package package)
         (setq-local rbx--view 'run)
-        (rbx-refresh)
-        (let ((text (buffer-substring-no-properties (point-min) (point-max))))
-          (should (string-match-p "✗.*wa\\.cpp.*declared WA.*got AC"
-                                  text))
-          (should (string-match-p "UNEXPECTED_VERDICTS" text))
-          (should (string-match-p "000.*AC.*10 ms.*2 KiB" text)))
-        (font-lock-ensure)
-        (goto-char (point-min))
-        (re-search-forward "^✗")
-        (let ((position (match-beginning 0)))
-          (should (memq 'rbx-mismatch
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face))))
-          (should (memq 'rbx-row-mismatch
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face))))
-          (should-not (get-text-property position 'face)))
-        (re-search-forward "declared \\(WA\\)")
-        (let ((position (match-beginning 1)))
-          (should (memq 'rbx-expected-incorrect
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face))))
-          (should (memq 'rbx-row-mismatch
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face)))))
-        (re-search-forward "got \\(AC\\)")
-        (let ((position (match-beginning 1)))
-          (should (memq 'rbx-outcome-accepted
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face))))
-          (should (memq 'rbx-row-mismatch
-                        (ensure-list (get-text-property
-                                      position 'font-lock-face)))))))))
+        (let ((loads 0)
+              (loader (symbol-function 'rbx-load-evaluation)))
+          (cl-letf (((symbol-function 'rbx-load-evaluation)
+                     (lambda (&rest arguments)
+                       (cl-incf loads)
+                       (apply loader arguments))))
+            (rbx-refresh)
+            (should (= loads 0))
+            (let ((text (buffer-substring-no-properties
+                         (point-min) (point-max))))
+              (should (string-match-p
+                       "✗.*wa\\.cpp.*declared WA.*got AC" text))
+              (should (string-match-p "UNEXPECTED_VERDICTS" text))
+              (should-not (string-match-p "000.*AC.*10 ms.*2 KiB" text)))
+            (font-lock-ensure)
+            (goto-char (point-min))
+            (re-search-forward "^✗")
+            (let ((position (match-beginning 0)))
+              (should (memq 'rbx-mismatch
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face))))
+              (should (memq 'rbx-row-mismatch
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face))))
+              (should-not (get-text-property position 'face)))
+            (re-search-forward "declared \\(WA\\)")
+            (let ((position (match-beginning 1)))
+              (should (memq 'rbx-expected-incorrect
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face))))
+              (should (memq 'rbx-row-mismatch
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face)))))
+            (re-search-forward "got \\(AC\\)")
+            (let ((position (match-beginning 1)))
+              (should (memq 'rbx-outcome-accepted
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face))))
+              (should (memq 'rbx-row-mismatch
+                            (ensure-list (get-text-property
+                                          position 'font-lock-face)))))
+            (goto-char (point-min))
+            (re-search-forward "^  ✗  main")
+            (magit-section-show (magit-current-section))
+            (should (= loads 1))
+            (should (string-match-p
+                     "000.*AC.*10 ms.*2 KiB"
+                     (buffer-substring-no-properties
+                      (point-min) (point-max))))))))))
 
 (ert-deftest rbx-render-testset-shows-provenance-and-validation ()
   (rbx-test-with-directory root

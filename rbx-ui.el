@@ -353,11 +353,15 @@ adjusted by the user remains intact."
                    (equal (rbx-group-report-name candidate) group))
                  (rbx-solution-report-groups solution-report))))
 
-(defun rbx--entries-for-group (entries group)
-  "Return ENTRIES belonging to GROUP."
-  (seq-filter (lambda (entry)
-                (equal (rbx-testcase-group entry) group))
-              entries))
+(defun rbx--entries-by-group (entries)
+  "Index ENTRIES by group while preserving their artifact order."
+  (let ((index (make-hash-table :test #'equal)))
+    (dolist (entry entries)
+      (push entry (gethash (rbx-testcase-group entry) index)))
+    (maphash (lambda (group members)
+               (puthash group (nreverse members) index))
+             index)
+    index))
 
 (defun rbx--solution-label (solution all-solutions)
   "Return a display label for SOLUTION among ALL-SOLUTIONS."
@@ -422,18 +426,20 @@ adjusted by the user remains intact."
   "Join non-nil PARTS into a compact metadata string."
   (string-join (delq nil parts) "  "))
 
-(defun rbx--evaluation-alist (package solution entries)
-  "Load evaluations for PACKAGE, SOLUTION, and ENTRIES."
-  (mapcar (lambda (entry)
-            (cons entry
-                  (rbx-load-evaluation package
-                                       (rbx-solution-index solution)
-                                       entry)))
-          entries))
+(defun rbx--evaluation-available-p (package solution entry)
+  "Return non-nil when ENTRY has an evaluation for SOLUTION in PACKAGE."
+  (file-readable-p
+   (rbx-run-artifact-path package (rbx-solution-index solution)
+                          (rbx-testcase-group entry)
+                          (rbx-testcase-stem entry) ".eval")))
 
-(defun rbx--progress (evaluations)
-  "Return completed and total counts for EVALUATIONS."
-  (cons (cl-count-if #'cdr evaluations) (length evaluations)))
+(defun rbx--evaluation-progress (package solution entries)
+  "Return completed and total counts for SOLUTION's ENTRIES in PACKAGE."
+  (cons (cl-count-if
+         (lambda (entry)
+           (rbx--evaluation-available-p package solution entry))
+         entries)
+        (length entries)))
 
 (defun rbx--insert-run-testcase (package solution entry evaluation)
   "Insert ENTRY and its EVALUATION for SOLUTION in PACKAGE."
@@ -461,20 +467,17 @@ adjusted by the user remains intact."
                  (if (string-empty-p (or meta "")) "" (concat "  " meta))))))))
 
 (defun rbx--insert-run-group
-    (package solution group entries evaluations solution-report)
+    (package solution group entries solution-report)
   "Insert GROUP and its ENTRIES for SOLUTION in PACKAGE."
   (let* ((group-report (rbx--report-for-group solution-report group))
          (warning
           (and group-report
                (or (rbx-group-report-run-under-double-tl group-report)
                    (rbx-group-report-sanitizer-warnings group-report))))
-         (group-evaluations
-          (seq-filter (lambda (pair)
-                        (equal (rbx-testcase-group (car pair)) group))
-                      evaluations))
-         (progress (rbx--progress group-evaluations))
+         (progress (and (null group-report)
+                        (rbx--evaluation-progress package solution entries)))
          (context (list :kind 'run-group :group group)))
-    (magit-insert-section (rbx-group-section context)
+    (magit-insert-section (rbx-group-section context t)
       (magit-insert-heading
        (if group-report
            (rbx--decorate-row
@@ -503,16 +506,20 @@ adjusted by the user remains intact."
              (rbx-group-report-matches-expectation group-report)
              warning))
          (format "  … %s  %d/%d\n" group (car progress) (cdr progress))))
-      (dolist (entry entries)
-        (rbx--insert-run-testcase package solution entry
-                                  (cdr (assq entry group-evaluations)))))))
+      (magit-insert-section-body
+        (dolist (entry entries)
+          (rbx--insert-run-testcase
+           package solution entry
+           (rbx-load-evaluation package (rbx-solution-index solution)
+                                entry)))))))
 
-(defun rbx--insert-solution (package skeleton report solution)
+(defun rbx--insert-solution
+    (package skeleton report solution groups entries-by-group)
   "Insert SOLUTION from SKELETON and REPORT for PACKAGE."
   (let* ((solution-report (rbx--report-for-solution report solution))
          (entries (rbx-skeleton-entries skeleton))
-         (evaluations (rbx--evaluation-alist package solution entries))
-         (progress (rbx--progress evaluations))
+         (progress (and (null solution-report)
+                        (rbx--evaluation-progress package solution entries)))
          (warning (and solution-report
                        (or (rbx-solution-report-run-under-double-tl
                             solution-report)
@@ -557,10 +564,10 @@ adjusted by the user remains intact."
                    (rbx-solution-expected-outcome solution)))
                  (rbx--expected (rbx-solution-expected-outcome solution))
                  (car progress) (cdr progress))))
-      (dolist (group (rbx-skeleton-ordered-groups skeleton))
+      (dolist (group groups)
         (rbx--insert-run-group
-         package solution group (rbx--entries-for-group entries group)
-         evaluations solution-report)))))
+         package solution group (gethash group entries-by-group)
+         solution-report)))))
 
 (defun rbx--insert-compilation (package findings)
   "Insert compilation FINDINGS for PACKAGE."
@@ -599,7 +606,10 @@ adjusted by the user remains intact."
 (defun rbx--insert-run-view (package)
   "Insert PACKAGE's run view at point."
   (if-let ((skeleton (rbx-load-skeleton package)))
-      (let ((report (rbx-load-report package)))
+      (let ((report (rbx-load-report package))
+            (groups (rbx-skeleton-ordered-groups skeleton))
+            (entries-by-group
+             (rbx--entries-by-group (rbx-skeleton-entries skeleton))))
         (magit-insert-section
             (rbx-root-section (list :kind 'root :package package))
           (magit-insert-heading
@@ -611,7 +621,8 @@ adjusted by the user remains intact."
                      "Showing accepted solutions only (sanitized run).\n"
                      'face 'shadow)))
           (dolist (solution (rbx-skeleton-solutions skeleton))
-            (rbx--insert-solution package skeleton report solution))
+            (rbx--insert-solution package skeleton report solution
+                                  groups entries-by-group))
           (rbx--insert-compilation package
                                    (rbx-skeleton-compilation skeleton))))
     (magit-insert-section
