@@ -1,14 +1,14 @@
 ;;; rbx-ui.el --- Native views for rbx artifacts -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 rbx-for-emacs contributors
+;; Copyright (C) 2026 rbx.el contributors
 
-;; Author: rbx-for-emacs contributors
-;; Maintainer: rbx-for-emacs contributors
+;; Author: rbx.el contributors
+;; Maintainer: rbx.el contributors
 ;; Version: 0.1.0
 ;; Package-Requires: ((emacs "30.1") (magit-section "4.1.0")
 ;;                    (transient "0.7.5"))
 ;; Keywords: tools, languages
-;; URL: https://github.com/luishgh/rbx-for-emacs
+;; URL: https://github.com/luishgh/rbx.el
 
 ;;; Commentary:
 

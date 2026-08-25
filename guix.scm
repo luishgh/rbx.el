@@ -1,4 +1,4 @@
-;;; guix.scm --- Guix package for rbx-for-emacs -*- mode: scheme; -*-
+;;; guix.scm --- Guix package for rbx.el -*- mode: scheme; -*-
 
 (use-modules (gnu packages emacs-build)
              (gnu packages emacs-xyz)
@@ -15,16 +15,16 @@
   (version "0.1.0")
   (source
    (local-file (dirname (current-filename))
-               "rbx-for-emacs-checkout"
+               "rbx.el-checkout"
                #:recursive? #t
                #:select? (git-predicate (current-source-directory))))
   (build-system emacs-build-system)
   (native-inputs (list emacs-package-lint))
   (propagated-inputs (list emacs-magit emacs-transient yq))
-  (home-page "https://github.com/luishgh/rbx-for-emacs")
+  (home-page "https://github.com/luishgh/rbx.el")
   (synopsis "Inspect rbx runs and testsets from Emacs")
   (description
-   "rbx for Emacs provides native Magit Section views for inspecting rbx run
+   "rbx.el provides native Magit Section views for inspecting rbx run
 and testset artifacts, a Transient command interface, and Flymake diagnostics
 for compiler findings.  It follows rbx's terminal-first workflow and never
 invokes rbx or modifies generated artifacts.")

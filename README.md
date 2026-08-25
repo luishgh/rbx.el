@@ -1,6 +1,6 @@
-# rbx for Emacs
+# rbx.el
 
-`rbx` for Emacs brings the run and testset inspection workflow of the official
+`rbx.el` brings the run and testset inspection workflow of the official
 [`rbx` VS Code extension](https://rbx.rsalesc.dev/tools/vscode/) to Emacs 30.
 It uses Magit Section for navigable trees, Transient for actions, Flymake for
 compiler findings, and native read-only file and diff buffers for testcase
@@ -45,13 +45,13 @@ Until the package is published, clone this repository and use Emacs's built-in
 VC package support:
 
 ```elisp
-(package-vc-install '(rbx :url "https://github.com/luishgh/rbx-for-emacs"))
+(package-vc-install '(rbx :url "https://github.com/luishgh/rbx.el"))
 ```
 
 For local development, add the checkout to `load-path`:
 
 ```elisp
-(add-to-list 'load-path "/path/to/rbx-for-emacs")
+(add-to-list 'load-path "/path/to/rbx.el")
 (require 'rbx)
 ```
 

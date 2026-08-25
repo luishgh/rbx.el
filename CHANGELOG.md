@@ -9,6 +9,7 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Rename the project from `rbx-for-emacs` to `rbx.el`.
 - Convert YAML artifacts to compact JSON with `yq` and parse them using
   Emacs's native JSON parser instead of `yaml.el`.
 
@@ -39,5 +40,5 @@ project follows [Semantic Versioning](https://semver.org/).
 - Custom preset `buildDir` resolution and debounced filesystem watching.
 - ERT coverage, byte-compilation checks, Checkdoc, and contributor guidance.
 
-[Unreleased]: https://github.com/luishgh/rbx-for-emacs/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/luishgh/rbx-for-emacs/releases/tag/v0.1.0
+[Unreleased]: https://github.com/luishgh/rbx.el/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/luishgh/rbx.el/releases/tag/v0.1.0
