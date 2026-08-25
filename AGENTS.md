@@ -29,6 +29,8 @@ This repository implements an Emacs 30 package inspired by the official
 - Run `guix shell --pure -m manifest.scm -- make check` before every commit.
   This includes ERT, byte compilation, Checkdoc, and package-lint in an
   isolated environment.
+- Keep `guix.scm` buildable after packaging or dependency changes.  Its Emacs
+  build system runs `make check`, so validate it with `guix build -f guix.scm`.
 - Use Conventional Commits such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`.  Keep commits focused and leave the worktree clean.
 - Do not commit generated `.elc` or autoload files.

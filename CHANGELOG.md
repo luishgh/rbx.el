@@ -7,6 +7,11 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A local `guix.scm` package definition for isolated builds and interactive
+  smoke testing.
+
 ### Fixed
 
 - Give run verdicts and expectations explicit VS Code-derived colours on clean

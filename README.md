@@ -54,6 +54,18 @@ For local development, add the checkout to `load-path`:
 (require 'rbx)
 ```
 
+With Guix, build and test the package in an isolated build container:
+
+```sh
+guix build -f guix.scm
+```
+
+To try the resulting package in a clean interactive Emacs session:
+
+```sh
+guix shell --pure -f guix.scm emacs -- emacs -Q
+```
+
 An example `use-package` configuration:
 
 ```elisp
