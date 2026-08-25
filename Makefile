@@ -9,6 +9,7 @@ test:
 	  -l test/rbx-core-test.el \
 	  -l test/rbx-model-test.el \
 	  -l test/rbx-ui-test.el \
+	  -l test/rbx-test.el \
 	  -f ert-run-tests-batch-and-exit
 
 compile:
@@ -21,4 +22,3 @@ check: clean test compile checkdoc clean
 
 clean:
 	find . -name '*.elc' -delete
-
