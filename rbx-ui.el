@@ -20,6 +20,7 @@
 (require 'browse-url)
 (require 'diff)
 (require 'eieio)
+(require 'font-lock)
 (require 'magit-section)
 (require 'project)
 (require 'rbx-model)
@@ -307,10 +308,14 @@ adjusted by the user remains intact."
         (list face 'bold)
       face)))
 
+(defun rbx--fontify (string face)
+  "Return STRING propertized with FACE for Magit Section font locking."
+  (propertize string 'font-lock-face face))
+
 (defun rbx--expected (outcome)
   "Return a propertized label for declared OUTCOME."
-  (propertize (rbx--expectation-label outcome)
-              'face (rbx--expected-face-value outcome)))
+  (rbx--fontify (rbx--expectation-label outcome)
+                (rbx--expected-face-value outcome)))
 
 (defun rbx-format-time (seconds)
   "Format SECONDS the same way as the rbx terminal UI."
@@ -386,9 +391,9 @@ adjusted by the user remains intact."
 (defun rbx--match-marker (matches warning)
   "Return the independent match marker for MATCHES and WARNING."
   (cond
-   ((not matches) (propertize "✗" 'face 'rbx-mismatch))
-   (warning (propertize "▲" 'face 'rbx-warning))
-   (t (propertize "✓" 'face 'rbx-match))))
+   ((not matches) (rbx--fontify "✗" 'rbx-mismatch))
+   (warning (rbx--fontify "▲" 'rbx-warning))
+   (t (rbx--fontify "✓" 'rbx-match))))
 
 (defun rbx--row-state (matches warning)
   "Return the row emphasis state for MATCHES and WARNING."
@@ -404,13 +409,14 @@ adjusted by the user remains intact."
                 ('missed 'rbx-row-mismatch)
                 ('warned 'rbx-row-warning))))
     (when face
-      (add-face-text-property 0 (length decorated) face t decorated))
+      (font-lock-append-text-property
+       0 (length decorated) 'font-lock-face face decorated))
     decorated))
 
 (defun rbx--actual (outcome)
   "Return propertized actual OUTCOME text."
-  (propertize (rbx-outcome-short-name outcome)
-              'face (rbx--outcome-face outcome)))
+  (rbx--fontify (rbx-outcome-short-name outcome)
+                (rbx--outcome-face outcome)))
 
 (defun rbx--meta (&rest parts)
   "Join non-nil PARTS into a compact metadata string."
@@ -521,11 +527,11 @@ adjusted by the user remains intact."
                     (rbx--match-marker
                      (rbx-solution-report-matches-expectation solution-report)
                      warning)
-                    (propertize
+                    (rbx--fontify
                      (rbx--solution-label solution
                                           (rbx-skeleton-solutions skeleton))
-                     'face (rbx--expected-face-value
-                            (rbx-solution-expected-outcome solution)))
+                     (rbx--expected-face-value
+                      (rbx-solution-expected-outcome solution)))
                     (rbx--expected (rbx-solution-expected-outcome solution))
                     (rbx--actual
                      (rbx-solution-report-outcome solution-report))
@@ -544,11 +550,11 @@ adjusted by the user remains intact."
              (rbx-solution-report-matches-expectation solution-report)
              warning))
          (format "… %s  declared %s  %d/%d\n"
-                 (propertize
+                 (rbx--fontify
                   (rbx--solution-label solution
                                        (rbx-skeleton-solutions skeleton))
-                  'face (rbx--expected-face-value
-                         (rbx-solution-expected-outcome solution)))
+                  (rbx--expected-face-value
+                   (rbx-solution-expected-outcome solution)))
                  (rbx--expected (rbx-solution-expected-outcome solution))
                  (car progress) (cdr progress))))
       (dolist (group (rbx-skeleton-ordered-groups skeleton))
@@ -571,10 +577,10 @@ adjusted by the user remains intact."
              (rbx--decorate-row
               (format "  %s %s  declared %s%s\n"
                       (if failed
-                          (propertize "✗" 'face 'rbx-mismatch)
-                        (propertize "▲" 'face 'rbx-warning))
-                      (propertize (rbx-compilation-path finding)
-                                  'face (rbx--expected-face-value expected))
+                          (rbx--fontify "✗" 'rbx-mismatch)
+                        (rbx--fontify "▲" 'rbx-warning))
+                      (rbx--fontify (rbx-compilation-path finding)
+                                    (rbx--expected-face-value expected))
                       (rbx--expected expected)
                       (if-let ((reason (rbx-compilation-reason finding)))
                           (concat "  " reason) ""))
@@ -652,11 +658,11 @@ adjusted by the user remains intact."
                                       "validated by %s"
                                       (rbx-testset-validation-result-validator
                                        validation)))
-                              (propertize
+                              (rbx--fontify
                                (or (rbx-testset-validation-result-message
                                     validation)
                                    "validation failed")
-                               'face 'error)))
+                               'error)))
                        (and test
                             (rbx--format-size
                              (rbx-testset-test-input-size test)))

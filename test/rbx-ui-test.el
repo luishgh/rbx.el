@@ -89,7 +89,34 @@
           (should (string-match-p "✗.*wa\\.cpp.*declared WA.*got AC"
                                   text))
           (should (string-match-p "UNEXPECTED_VERDICTS" text))
-          (should (string-match-p "000.*AC.*10 ms.*2 KiB" text)))))))
+          (should (string-match-p "000.*AC.*10 ms.*2 KiB" text)))
+        (font-lock-ensure)
+        (goto-char (point-min))
+        (re-search-forward "^✗")
+        (let ((position (match-beginning 0)))
+          (should (memq 'rbx-mismatch
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face))))
+          (should (memq 'rbx-row-mismatch
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face))))
+          (should-not (get-text-property position 'face)))
+        (re-search-forward "declared \\(WA\\)")
+        (let ((position (match-beginning 1)))
+          (should (memq 'rbx-expected-incorrect
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face))))
+          (should (memq 'rbx-row-mismatch
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face)))))
+        (re-search-forward "got \\(AC\\)")
+        (let ((position (match-beginning 1)))
+          (should (memq 'rbx-outcome-accepted
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face))))
+          (should (memq 'rbx-row-mismatch
+                        (ensure-list (get-text-property
+                                      position 'font-lock-face)))))))))
 
 (ert-deftest rbx-render-testset-shows-provenance-and-validation ()
   (rbx-test-with-directory root
