@@ -32,15 +32,3 @@ This repository implements an Emacs 30 package inspired by the official
 - Use Conventional Commits such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`.  Keep commits focused and leave the worktree clean.
 - Do not commit generated `.elc` or autoload files.
-
-## Repository metadata in this workspace
-
-The environment may mount an empty read-only directory at `.git`.  When that is
-the case, this project keeps its real Git directory at the ignored `.git-data`.
-Run Git as:
-
-```sh
-git --git-dir=.git-data --work-tree=. <command>
-```
-
-If `.git-data` is absent and `.git` is writable, use ordinary Git instead.
