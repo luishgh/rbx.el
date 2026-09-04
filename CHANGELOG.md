@@ -15,6 +15,10 @@ project follows [Semantic Versioning](https://semver.org/).
   a letter, a dedicated contest view rendering one block per variant, and
   best-effort following of the contest problem most recently touched by
   `rbx contest each run`.
+- A dedicated testcase info card (`m`) with the full, wrapped checker or
+  validator message and test origin, for both run and built-test browsing.
+- Actions to jump to a testcase's generator script line or copied-from
+  source (`s`), and to open a testset testcase's validator source (`V`).
 
 ### Changed
 

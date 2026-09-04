@@ -423,5 +423,141 @@
           (setq-local rbx--view 'run)
           (should-error (rbx-toggle-contest-follow) :type 'user-error))))))
 
+(ert-deftest rbx-context-testcase-entry-unwraps-testset-testcase ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (wrapped (rbx-testset-testcase-create
+                  :entry entry :stem "000" :test nil)))
+    (should (eq (rbx--context-testcase-entry
+                (list :kind 'testset-testcase :testcase wrapped))
+               entry))
+    (should (eq (rbx--context-testcase-entry
+                (list :kind 'run-testcase :testcase entry))
+               entry))))
+
+(ert-deftest rbx-testcase-info-lines-includes-origin-and-full-message-for-run ()
+  (let* ((entry (rbx-testcase-create
+                :group "main" :index 0
+                :generator-name "gen" :generator-args "5 3"))
+         (evaluation (rbx-evaluation-create
+                     :outcome "wrong-answer"
+                     :message "expected 5 but produced 6"
+                     :time 0.01 :memory 2048))
+         (context (list :kind 'run-testcase :testcase entry
+                       :evaluation evaluation))
+         (result (rbx--testcase-info-lines context))
+         (lines (car result)))
+    (should (member "Origin: gen 5 3" lines))
+    (should (cl-some (lambda (line) (string-match-p "Verdict: WA" line))
+                     lines))
+    (should (equal (cdr result) "expected 5 but produced 6"))))
+
+(ert-deftest rbx-testcase-info-lines-handles-run-testcase-without-evaluation ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (context (list :kind 'run-testcase :testcase entry :evaluation nil))
+         (result (rbx--testcase-info-lines context)))
+    (should (member "No evaluation yet." (car result)))
+    (should-not (cdr result))))
+
+(ert-deftest rbx-testcase-info-lines-includes-validator-status-for-testset ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0
+                                     :copied-from "samples/1.in"))
+         (validation (rbx-testset-validation-result-create
+                     :ok nil :validator "validator.cpp"
+                     :message "n is out of bounds"))
+         (test (rbx-testset-test-create :group "main" :index 0
+                                        :validation validation))
+         (testcase (rbx-testset-testcase-create
+                   :entry entry :stem "000" :test test))
+         (context (list :kind 'testset-testcase :testcase testcase))
+         (result (rbx--testcase-info-lines context)))
+    (should (member "Origin: copied from samples/1.in" (car result)))
+    (should (member "Validator: validator.cpp" (car result)))
+    (should (member "Validation: failed" (car result)))
+    (should (equal (cdr result) "n is out of bounds"))))
+
+(ert-deftest rbx-show-testcase-info-pops-a-buffer-with-full-message ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (evaluation (rbx-evaluation-create
+                     :outcome "accepted" :message "ok, well done"))
+         (context (list :kind 'run-testcase :testcase entry
+                       :evaluation evaluation)))
+    (unwind-protect
+        (progn
+          (rbx-show-testcase-info context)
+          (with-current-buffer (get-buffer "*rbx testcase info*")
+            (let ((text (buffer-string)))
+              (should (string-match-p "^Testcase: 000$" text))
+              (should (string-match-p "^Origin: generated$" text))
+              (should (string-match-p "ok, well done" text)))))
+      (when (get-buffer "*rbx testcase info*")
+        (kill-buffer "*rbx testcase info*")))))
+
+(ert-deftest rbx-visit-testcase-source-jumps-to-generator-script-line ()
+  (rbx-test-with-directory root
+    (let* ((script (rbx-test-write root "gen/main.rbx"
+                                   "line one\nline two\nline three\n"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (entry (rbx-testcase-create
+                 :group "main" :index 0
+                 :generator-script "gen/main.rbx"
+                 :generator-script-line 2))
+          (context (list :kind 'run-testcase :package package :testcase entry))
+          (buffer (rbx-visit-testcase-source context)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) script))
+            (should (= (line-number-at-pos) 2)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-visit-testcase-source-opens-copied-from-without-a-line ()
+  (rbx-test-with-directory root
+    (let* ((source (rbx-test-write root "samples/1.in" "3\n1 2 3\n"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (entry (rbx-testcase-create :group "main" :index 0
+                                     :copied-from "samples/1.in"))
+          (context (list :kind 'run-testcase :package package :testcase entry))
+          (buffer (rbx-visit-testcase-source context)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) source)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-visit-testcase-source-errors-without-a-recorded-location ()
+  (let ((entry (rbx-testcase-create :group "main" :index 0)))
+    (should-error
+     (rbx-visit-testcase-source (list :kind 'run-testcase :testcase entry))
+     :type 'user-error)))
+
+(ert-deftest rbx-open-validator-opens-the-recorded-validator ()
+  (rbx-test-with-directory root
+    (let* ((source (rbx-test-write root "validator.cpp" "int main() {}\n"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (validation (rbx-testset-validation-result-create
+                      :ok t :validator "validator.cpp"))
+          (test (rbx-testset-test-create :group "main" :index 0
+                                        :validation validation))
+          (entry (rbx-testcase-create :group "main" :index 0))
+          (testcase (rbx-testset-testcase-create :entry entry :stem "000"
+                                                 :test test))
+          (context (list :kind 'testset-testcase :package package
+                        :testcase testcase))
+          (buffer (rbx-open-validator context)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) source)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-open-validator-errors-without-a-validator ()
+  (let* ((test (rbx-testset-test-create :group "main" :index 0))
+        (entry (rbx-testcase-create :group "main" :index 0))
+        (testcase (rbx-testset-testcase-create :entry entry :stem "000"
+                                              :test test)))
+    (should-error
+     (rbx-open-validator (list :kind 'testset-testcase :testcase testcase))
+     :type 'user-error)))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

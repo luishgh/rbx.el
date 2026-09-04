@@ -21,6 +21,11 @@ the package and renders the artifacts that land on disk.
 - Built testset browser with generator/copy provenance, validation status,
   artifact sizes, visualizations, and constraint coverage.
 - Read-only input, expected answer, output, stderr, and log buffers.
+- A dedicated testcase info card showing the full, wrapped checker or
+  validator message and the test's origin (generator call, generator
+  script, or copied-from source) for both run and built-test browsing.
+- Jump straight to a testcase's generator script line or copied-from
+  source, and to a testset testcase's validator source.
 - Native unified diffs of solution output against the expected answer.
 - Sticky output/stderr/log selection and persistent testcase windows: after the
   first split, your window arrangement is reused.
@@ -112,6 +117,10 @@ On a testcase, `RET` opens the input and a second pane. For run testcases that
 pane contains an output-versus-answer diff; for built tests it contains the
 expected answer. The Transient can switch the second pane between output,
 stderr, and the run log. The choice stays active while you inspect other tests.
+`m` opens a dedicated info card with the testcase's origin and the full,
+wrapped checker or validator message; `s` jumps to the generator script line
+or copied-from source behind it; `V` opens a testset testcase's validator
+source.
 
 In a contest workspace, `M-x rbx-contest-view` (or `c` in the Transient) opens
 a block per declared variant, each listing its problems by letter and color;

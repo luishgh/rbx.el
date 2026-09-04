@@ -20,19 +20,15 @@ Code/VSIX packaging context (sideloading, remote SSH/devcontainer install,
 
 ## Testcase inspection
 
-- [ ] Dedicated testcase info card showing the checker's own message in full
-      (wrapped, not truncated) — currently only surfaced as a short inline
-      meta string on the testcase heading (`rbx--insert-run-testcase`).
-- [ ] Test origin (generator call/script or copied-from) surfaced for **run**
-      testcases, not just testset testcases (`rbx--testcase-provenance` is
-      only used in `rbx--insert-testset-view`).
-- [ ] "Visit source" action to jump to the generator script/line or the
-      copied-from file for a testcase, analogous to `rbx-open-warning` for
-      compiler warnings. `rbx-testcase-generator-script`,
-      `-generator-script-line`, and `-copied-from` are already parsed but
-      nothing lets you navigate to them.
-- [ ] Action to open a testset testcase's **validator** source, not just its
-      pass/fail message.
+- [x] Dedicated testcase info card showing the checker's own message in full
+      (wrapped, not truncated) (`rbx-show-testcase-info`, key `m`).
+- [x] Test origin (generator call/script or copied-from) surfaced for **run**
+      testcases, not just testset testcases (shown in the info card, via
+      `rbx--testcase-provenance`).
+- [x] "Visit source" action to jump to the generator script/line or the
+      copied-from file for a testcase (`rbx-visit-testcase-source`, key `s`).
+- [x] Action to open a testset testcase's **validator** source
+      (`rbx-open-validator`, key `V`).
 
 ## Testset statistics
 

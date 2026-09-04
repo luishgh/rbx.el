@@ -663,6 +663,126 @@ Non-nil exactly when the current run view is following, per
             (or (rbx-testcase-generator-script-line entry) "?")))
    (t "generated")))
 
+(defun rbx--context-testcase-entry (context)
+  "Return CONTEXT's underlying `rbx-testcase' entry.
+
+CONTEXT may be a `run-testcase' context, whose :testcase value already is
+the entry, or a `testset-testcase' context, whose :testcase value wraps it
+in an `rbx-testset-testcase'."
+  (let ((testcase (plist-get context :testcase)))
+    (if (rbx-testset-testcase-p testcase)
+        (rbx-testset-testcase-entry testcase)
+      testcase)))
+
+(defun rbx--testcase-info-lines (context)
+  "Return (METADATA-LINES . MESSAGE) describing the testcase at CONTEXT.
+
+METADATA-LINES is a list of short strings meant to be shown one per line.
+MESSAGE is the checker's or validator's own message, to be shown in full
+afterwards, or nil when there is none."
+  (let* ((kind (plist-get context :kind))
+         (testcase (plist-get context :testcase))
+         (entry (rbx--context-testcase-entry context))
+         (stem (if (eq kind 'run-testcase)
+                  (rbx-testcase-stem entry)
+                (rbx-testset-testcase-stem testcase)))
+         (header (list (format "Testcase: %s" stem)
+                      (format "Origin: %s" (rbx--testcase-provenance entry)))))
+    (pcase kind
+      ('run-testcase
+       (let ((evaluation (plist-get context :evaluation)))
+         (if (null evaluation)
+             (cons (append header (list "No evaluation yet.")) nil)
+           (cons (append header
+                        (list (format "Verdict: %s"
+                                     (rbx-outcome-short-name
+                                      (rbx-evaluation-outcome evaluation)))
+                             (rbx--meta
+                              (rbx-format-time (rbx-evaluation-time evaluation))
+                              (rbx-format-memory
+                               (rbx-evaluation-memory evaluation))
+                              (and (rbx-evaluation-sanitizer-warnings evaluation)
+                                  "sanitizer"))))
+                (rbx-evaluation-message evaluation)))))
+      ('testset-testcase
+       (let* ((test (rbx-testset-testcase-test testcase))
+             (validation (and test (rbx-testset-test-validation test))))
+         (if (null validation)
+             (cons (append header (list "No validation recorded.")) nil)
+           (cons (append header
+                        (list (format "Validator: %s"
+                                     (or (rbx-testset-validation-result-validator
+                                          validation)
+                                        "unknown"))
+                             (format "Validation: %s"
+                                    (if (rbx-testset-validation-result-ok
+                                         validation)
+                                        "ok" "failed"))))
+                (rbx-testset-validation-result-message validation)))))
+      (_ (user-error "No testcase at point")))))
+
+(defun rbx-show-testcase-info (&optional context)
+  "Show a dedicated info card for the testcase at CONTEXT.
+
+Shows the full test origin — including for run testcases, unlike the
+truncated inline summary — and, when available, the checker's or
+validator's own message in full and wrapped rather than truncated."
+  (interactive)
+  (let* ((result (rbx--testcase-info-lines (or context (rbx--context))))
+         (lines (car result))
+         (message (cdr result))
+         (buffer (get-buffer-create "*rbx testcase info*")))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (dolist (line lines) (insert line "\n"))
+        (when (and message (not (string-empty-p message)))
+          (insert "\n")
+          (let ((start (point)))
+            (insert message "\n")
+            (fill-region start (point))))
+        (goto-char (point-min)))
+      (view-mode 1))
+    (display-buffer buffer)))
+
+(defun rbx-visit-testcase-source (&optional context)
+  "Visit the source behind the testcase at CONTEXT.
+
+Jumps to the recorded generator script line, or opens the copied-from file
+when there is no generator script.  Returns the buffer now visiting it."
+  (interactive)
+  (let* ((value (or context (rbx--context)))
+         (package (plist-get value :package))
+         (entry (and (memq (plist-get value :kind)
+                          '(run-testcase testset-testcase))
+                    (rbx--context-testcase-entry value))))
+    (unless entry (user-error "No testcase at point"))
+    (cond
+     ((rbx-testcase-generator-script entry)
+      (let ((buffer (find-file
+                    (rbx-package-file-path
+                     package (rbx-testcase-generator-script entry)))))
+        (goto-char (point-min))
+        (forward-line (1- (or (rbx-testcase-generator-script-line entry) 1)))
+        buffer))
+     ((rbx-testcase-copied-from entry)
+      (find-file
+       (rbx-package-file-path package (rbx-testcase-copied-from entry))))
+     (t (user-error "No source location recorded for this testcase")))))
+
+(defun rbx-open-validator (&optional context)
+  "Open the validator source for the testset testcase at CONTEXT."
+  (interactive)
+  (let* ((value (or context (rbx--context)))
+         (testcase (plist-get value :testcase))
+         (test (and (rbx-testset-testcase-p testcase)
+                   (rbx-testset-testcase-test testcase)))
+         (validation (and test (rbx-testset-test-validation test)))
+         (validator (and validation
+                        (rbx-testset-validation-result-validator validation))))
+    (unless validator (user-error "No validator recorded for this testcase"))
+    (find-file (rbx-package-file-path (plist-get value :package) validator))))
+
 (defun rbx--insert-testset-testcase (package testcase)
   "Insert TESTCASE from PACKAGE's testset."
   (let* ((entry (rbx-testset-testcase-entry testcase))
@@ -1302,7 +1422,10 @@ current view, or the nearest contest to `default-directory'."
     ("a" "Expected" rbx-open-expected :if-mode rbx-view-mode)
     ("o" "Output" rbx-open-output :if-mode rbx-view-mode)
     ("d" "Diff" rbx-diff-output :if-mode rbx-view-mode)
-    ("v" "Visualization" rbx-open-visualization :if-mode rbx-view-mode)]
+    ("v" "Visualization" rbx-open-visualization :if-mode rbx-view-mode)
+    ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
+    ("s" "Visit source" rbx-visit-testcase-source :if-mode rbx-view-mode)
+    ("V" "Open validator" rbx-open-validator :if-mode rbx-view-mode)]
    ["Sticky testcase channel"
     ("1" "Output vs answer" rbx-show-output :if-mode rbx-view-mode)
     ("2" "Stderr" rbx-show-stderr :if-mode rbx-view-mode)
