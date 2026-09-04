@@ -622,5 +622,172 @@
     (should (string-empty-p (buffer-substring-no-properties
                             (point-min) (point-max))))))
 
+(ert-deftest rbx-open-visualization-opens-input-image-file ()
+  (rbx-test-with-directory root
+    (let* ((image (rbx-test-write root "visual/000.png" "fake-png-bytes"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (visualization (rbx-testset-visualization-create
+                         :input "visual/000.png"))
+          (test (rbx-testset-test-create :group "main" :index 0
+                                        :visualization visualization))
+          (entry (rbx-testcase-create :group "main" :index 0))
+          (testcase (rbx-testset-testcase-create
+                    :entry entry :stem "000" :test test))
+          (context (list :kind 'testset-testcase :package package
+                        :testcase testcase))
+          (buffer (rbx-open-visualization context)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) image)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-open-visualization-browses-html-visualization ()
+  (rbx-test-with-directory root
+    (let* ((html (rbx-test-write root "visual/000.html" "<html></html>"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (visualization (rbx-testset-visualization-create
+                         :input "visual/000.html"))
+          (test (rbx-testset-test-create :group "main" :index 0
+                                        :visualization visualization))
+          (entry (rbx-testcase-create :group "main" :index 0))
+          (testcase (rbx-testset-testcase-create
+                    :entry entry :stem "000" :test test))
+          (context (list :kind 'testset-testcase :package package
+                        :testcase testcase))
+          browsed)
+      (cl-letf (((symbol-function 'browse-url-of-file)
+                (lambda (path) (setq browsed path))))
+        (rbx-open-visualization context)
+        (should (equal browsed html))))))
+
+(ert-deftest rbx-open-visualization-errors-without-a-visualization ()
+  (let* ((test (rbx-testset-test-create :group "main" :index 0))
+        (entry (rbx-testcase-create :group "main" :index 0))
+        (testcase (rbx-testset-testcase-create
+                  :entry entry :stem "000" :test test)))
+    (should-error
+     (rbx-open-visualization (list :kind 'testset-testcase :testcase testcase))
+     :type 'user-error)))
+
+(ert-deftest rbx-open-answer-visualization-opens-output-image-file ()
+  (rbx-test-with-directory root
+    (let* ((image (rbx-test-write root "visual/000-answer.png" "fake-bytes"))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (visualization (rbx-testset-visualization-create
+                         :input "visual/000.png"
+                         :output "visual/000-answer.png"))
+          (test (rbx-testset-test-create :group "main" :index 0
+                                        :visualization visualization))
+          (entry (rbx-testcase-create :group "main" :index 0))
+          (testcase (rbx-testset-testcase-create
+                    :entry entry :stem "000" :test test))
+          (context (list :kind 'testset-testcase :package package
+                        :testcase testcase))
+          (buffer (rbx-open-answer-visualization context)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) image)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-open-answer-visualization-errors-without-an-answer ()
+  (let* ((visualization (rbx-testset-visualization-create :input "visual/000.png"))
+        (test (rbx-testset-test-create :group "main" :index 0
+                                      :visualization visualization))
+        (entry (rbx-testcase-create :group "main" :index 0))
+        (testcase (rbx-testset-testcase-create
+                  :entry entry :stem "000" :test test)))
+    (should-error
+     (rbx-open-answer-visualization
+      (list :kind 'testset-testcase :testcase testcase))
+     :type 'user-error)))
+
+(ert-deftest rbx-visualization-thumbnail-builds-an-image-spec-for-a-picture ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "visual/000.png" "fake-png-bytes")))
+      (should (rbx--visualization-thumbnail path)))))
+
+(ert-deftest rbx-visualization-thumbnail-nil-for-html ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "visual/000.html" "<html></html>")))
+      (should-not (rbx--visualization-thumbnail path)))))
+
+(ert-deftest rbx-visualization-thumbnail-nil-for-a-missing-file ()
+  (rbx-test-with-directory root
+    (should-not (rbx--visualization-thumbnail
+                (expand-file-name "missing.png" root)))))
+
+(ert-deftest rbx-insert-gallery-groups-shows-thumbnails-and-links-by-group ()
+  (rbx-test-with-directory root
+    (let* ((html-path (rbx-test-write root "visual/main-000.html"
+                                      "<html></html>"))
+          (entry-samples (rbx-testcase-create :group "samples" :index 0))
+          (entry-main (rbx-testcase-create :group "main" :index 0))
+          (entry-empty (rbx-testcase-create :group "empty" :index 0))
+          (vis-samples (rbx-testset-visualization-create
+                       :input "visual/samples-000.png"))
+          (vis-main (rbx-testset-visualization-create
+                    :input "visual/main-000.html"))
+          (test-samples (rbx-testset-test-create :group "samples" :index 0
+                                                 :visualization vis-samples))
+          (test-main (rbx-testset-test-create :group "main" :index 0
+                                              :visualization vis-main))
+          (testset (rbx-testset-create
+                   :groups (list (rbx-testset-group-create :name "samples")
+                                (rbx-testset-group-create :name "main")
+                                (rbx-testset-group-create :name "empty"))
+                   :entries (list entry-samples entry-main entry-empty)
+                   :tests (list test-samples test-main)))
+          (package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (rbx-test-write root "visual/samples-000.png" "fake-png-bytes")
+      (with-temp-buffer
+        (rbx-view-mode)
+        (let ((inhibit-read-only t))
+          (magit-insert-section (rbx-root-section nil)
+            (rbx--insert-gallery-groups package testset)))
+        (goto-char (point-min))
+        (should (search-forward "samples" nil t))
+        (should (search-forward "main" nil t))
+        (should-not (save-excursion
+                     (goto-char (point-min))
+                     (search-forward "empty" nil t)))
+        (goto-char (point-min))
+        (re-search-forward "000")
+        (should (get-text-property (match-beginning 0) 'display))
+        (goto-char (point-min))
+        (should (search-forward (file-name-nondirectory html-path) nil t))))))
+
+(ert-deftest rbx-insert-gallery-groups-shows-placeholder-without-visualizations ()
+  (let ((testset (rbx-testset-create
+                  :groups (list (rbx-testset-group-create :name "main"))
+                  :entries (list (rbx-testcase-create :group "main" :index 0))))
+        (package (rbx-package-create :root "/tmp/" :build-dir "build")))
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (magit-insert-section (rbx-root-section nil)
+          (rbx--insert-gallery-groups package testset)))
+      (should (string-match-p "No visualizations found"
+                             (buffer-substring-no-properties
+                              (point-min) (point-max)))))))
+
+(ert-deftest rbx-open-gallery-visualization-opens-the-path-at-point ()
+  (rbx-test-with-directory root
+    (let* ((image (rbx-test-write root "visual/000.png" "fake"))
+          (buffer (rbx-open-gallery-visualization
+                  (list :kind 'gallery-visualization :path image))))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal (buffer-file-name) image)))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-open-gallery-visualization-errors-without-a-path ()
+  (should-error
+   (rbx-open-gallery-visualization (list :kind 'gallery-visualization))
+   :type 'user-error))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

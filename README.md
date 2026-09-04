@@ -22,6 +22,9 @@ the package and renders the artifacts that land on disk.
   artifact sizes, visualizations, and constraint coverage.
 - Aggregate testset statistics: total and per-group testcase counts and
   input/output sizes, with a proportional bar per group.
+- A visualization gallery, grouped like the testset browser, with inline
+  image thumbnails and link lines for HTML visualizations; opens the input
+  or answer visualization for any testcase from either view.
 - Read-only input, expected answer, output, stderr, and log buffers.
 - A dedicated testcase info card showing the full, wrapped checker or
   validator message and the test's origin (generator call, generator
@@ -122,7 +125,12 @@ stderr, and the run log. The choice stays active while you inspect other tests.
 `m` opens a dedicated info card with the testcase's origin and the full,
 wrapped checker or validator message; `s` jumps to the generator script line
 or copied-from source behind it; `V` opens a testset testcase's validator
-source.
+source; `v`/`A` open a testset testcase's input/answer visualization.
+
+`M-x rbx-visualization-gallery` (or `G` in the Transient) opens a gallery of
+every group's visualizations for a package: an inline thumbnail for image
+visualizations, or a link line for HTML ones. `RET` on an entry opens it
+full-size.
 
 In a contest workspace, `M-x rbx-contest-view` (or `c` in the Transient) opens
 a block per declared variant, each listing its problems by letter and color;

@@ -22,6 +22,11 @@ project follows [Semantic Versioning](https://semver.org/).
 - A collapsible "Testset statistics" section in the testset view, with
   total and per-group testcase counts, input/output sizes, and a
   proportional bar per group.
+- An action to open a testset testcase's answer visualization (`A`),
+  finally surfacing `rbx-testset-visualization-output`.
+- A visualization gallery view (`rbx-visualization-gallery`, key `G`),
+  grouped like the testset browser, with inline image thumbnails and link
+  lines for HTML visualizations.
 
 ### Changed
 

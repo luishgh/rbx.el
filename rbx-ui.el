@@ -230,6 +230,8 @@ adjusted by the user remains intact."
 (defclass rbx-testset-testcase-section (magit-section) ())
 (defclass rbx-coverage-section (magit-section) ())
 (defclass rbx-statistics-section (magit-section) ())
+(defclass rbx-gallery-group-section (magit-section) ())
+(defclass rbx-gallery-testcase-section (magit-section) ())
 (defclass rbx-contest-section (magit-section) ())
 (defclass rbx-contest-variant-section (magit-section) ())
 (defclass rbx-contest-problem-section (magit-section) ())
@@ -925,6 +927,77 @@ when there is no generator script.  Returns the buffer now visiting it."
                "No testset manifest yet.  Run `rbx build` in your terminal.\n"
                'face 'shadow)))))
 
+(defconst rbx--gallery-thumbnail-width 200
+  "Maximum pixel width of a thumbnail in the visualization gallery.")
+
+(defun rbx--visualization-thumbnail (path)
+  "Return a thumbnail `create-image' spec for PATH, or nil.
+
+Returns nil for an HTML PATH (browsable, not thumbnailable), a missing or
+unreadable file, or any image Emacs cannot create."
+  (unless (string-match-p (rx "." (or "html" "htm") string-end) path)
+    (and (file-readable-p path)
+        (ignore-errors
+          (create-image path nil nil :max-width rbx--gallery-thumbnail-width)))))
+
+(defun rbx--insert-gallery-testcase (package testcase)
+  "Insert TESTCASE's input visualization thumbnail or link, for PACKAGE."
+  (let* ((path (rbx--testset-testcase-visualization-path testcase 'input))
+         (absolute (rbx-package-file-path package path))
+         (image (rbx--visualization-thumbnail absolute))
+         (context (list :kind 'gallery-visualization
+                        :package package :path absolute)))
+    (magit-insert-section (rbx-gallery-testcase-section context)
+      (magit-insert-heading
+       (if image
+          (concat (propertize (rbx-testset-testcase-stem testcase)
+                              'display image)
+                 "\n")
+        (format "%s  %s\n"
+               (rbx-testset-testcase-stem testcase)
+               (rbx--fontify (file-name-nondirectory absolute) 'link)))))))
+
+(defun rbx--insert-gallery-groups (package testset)
+  "Insert one gallery block per TESTSET group with a visualization.
+
+PACKAGE resolves the package-relative visualization paths recorded in
+TESTSET."
+  (let ((any nil))
+    (dolist (group (rbx-testset-ordered-groups testset))
+      (let ((testcases
+            (seq-filter
+             (lambda (testcase)
+               (rbx--testset-testcase-visualization-path testcase 'input))
+             (rbx--testset-cases-for-group testset group))))
+        (when testcases
+          (setq any t)
+          (magit-insert-section
+              (rbx-gallery-group-section (list :kind 'gallery-group
+                                               :group group))
+            (magit-insert-heading (format "%s\n" group))
+            (dolist (testcase testcases)
+              (rbx--insert-gallery-testcase package testcase))))))
+    (unless any
+      (insert (propertize "No visualizations found in this testset.\n"
+                          'face 'shadow)))))
+
+(defun rbx--insert-gallery-view (package)
+  "Insert PACKAGE's visualization gallery at point."
+  (if-let ((testset (rbx-load-testset package)))
+      (magit-insert-section
+          (rbx-root-section (list :kind 'root :package package))
+        (magit-insert-heading
+         (format "Visualizations · %s\n"
+                (rbx--package-heading-label
+                 package (abbreviate-file-name (rbx-package-root package)))))
+        (rbx--insert-gallery-groups package testset))
+    (magit-insert-section
+        (rbx-root-section (list :kind 'root :package package))
+      (magit-insert-heading "Visualizations")
+      (insert (propertize
+               "No testset manifest yet.  Run `rbx build` in your terminal.\n"
+               'face 'shadow)))))
+
 (defun rbx--insert-contest-problem (contest-root problem)
   "Insert PROBLEM declared under CONTEST-ROOT."
   (let* ((resolved (rbx-contest-problem-resolved-path problem contest-root))
@@ -976,6 +1049,7 @@ selection a terminal invocation used."
       ('run (rbx--insert-run-view rbx--package))
       ('testset (rbx--insert-testset-view rbx--package))
       ('contest (rbx--insert-contest-view rbx--contest-root))
+      ('gallery (rbx--insert-gallery-view rbx--package))
       (_ (insert "Unknown rbx view.\n")))
     (goto-char (point-min))
     (forward-line (1- line))))
@@ -1197,6 +1271,12 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
   (rbx--open-view 'testset package))
 
 ;;;###autoload
+(defun rbx-visualization-gallery (&optional package)
+  "Open a visualization gallery for PACKAGE's built testset."
+  (interactive)
+  (rbx--open-view 'gallery package))
+
+;;;###autoload
 (defun rbx-contest-view (&optional contest-root)
   "Open the contest view for CONTEST-ROOT.
 
@@ -1415,21 +1495,48 @@ current view, or the nearest contest to `default-directory'."
     (goto-char (point-min))
     (forward-line (1- (rbx-warning-line warning)))))
 
-(defun rbx-open-visualization ()
-  "Open the input visualization for the testset testcase at point."
+(defun rbx--open-visualization-path (path)
+  "Open visualization PATH, browsing HTML and visiting anything else.
+
+Returns whatever `browse-url-of-file' or `find-file-other-window' returns."
+  (if (string-match-p (rx "." (or "html" "htm") string-end) path)
+      (browse-url-of-file path)
+    (find-file-other-window path)))
+
+(defun rbx--testset-testcase-visualization-path (testcase channel)
+  "Return TESTCASE's CHANNEL visualization path, or nil.
+
+CHANNEL is `input' or `output'."
+  (let* ((test (rbx-testset-testcase-test testcase))
+         (visualization (and test (rbx-testset-test-visualization test))))
+    (and visualization
+        (pcase channel
+          ('input (rbx-testset-visualization-input visualization))
+          ('output (rbx-testset-visualization-output visualization))))))
+
+(defun rbx-open-visualization (&optional context)
+  "Open the input visualization for the testset testcase at CONTEXT."
   (interactive)
-  (let* ((context (rbx--context))
-         (testcase (plist-get context :testcase))
-         (test (and (rbx-testset-testcase-p testcase)
-                    (rbx-testset-testcase-test testcase)))
-         (visualization (and test (rbx-testset-test-visualization test)))
-         (path (and visualization
-                    (rbx-testset-visualization-input visualization))))
+  (let* ((value (or context (rbx--context)))
+         (testcase (plist-get value :testcase))
+         (path (and (rbx-testset-testcase-p testcase)
+                   (rbx--testset-testcase-visualization-path
+                    testcase 'input))))
     (unless path (user-error "No input visualization for this testcase"))
-    (let ((absolute (rbx-package-file-path (plist-get context :package) path)))
-      (if (string-match-p (rx "." (or "html" "htm") string-end) absolute)
-          (browse-url-of-file absolute)
-        (find-file-other-window absolute)))))
+    (rbx--open-visualization-path
+     (rbx-package-file-path (plist-get value :package) path))))
+
+(defun rbx-open-answer-visualization (&optional context)
+  "Open the answer visualization for the testset testcase at CONTEXT."
+  (interactive)
+  (let* ((value (or context (rbx--context)))
+         (testcase (plist-get value :testcase))
+         (path (and (rbx-testset-testcase-p testcase)
+                   (rbx--testset-testcase-visualization-path
+                    testcase 'output))))
+    (unless path (user-error "No answer visualization for this testcase"))
+    (rbx--open-visualization-path
+     (rbx-package-file-path (plist-get value :package) path))))
 
 (defun rbx-open-contest-problem (&optional context)
   "Open the run view for the contest problem represented by CONTEXT."
@@ -1440,6 +1547,14 @@ current view, or the nearest contest to `default-directory'."
     (unless package
       (user-error "No problem.rbx.yml found for this entry"))
     (rbx-run-view package)))
+
+(defun rbx-open-gallery-visualization (&optional context)
+  "Open the visualization gallery entry at CONTEXT full-size."
+  (interactive)
+  (let* ((value (or context (rbx--context)))
+         (path (plist-get value :path)))
+    (unless path (user-error "No visualization at point"))
+    (rbx--open-visualization-path path)))
 
 (defun rbx-view-visit ()
   "Visit or toggle the rbx section at point."
@@ -1452,6 +1567,7 @@ current view, or the nearest contest to `default-directory'."
       ('compilation (rbx-open-compilation-log))
       ('warning (rbx-open-warning))
       ('contest-problem (rbx-open-contest-problem context))
+      ('gallery-visualization (rbx-open-gallery-visualization context))
       (_ (if section (magit-section-toggle section)
            (user-error "No rbx item at point"))))))
 
@@ -1462,6 +1578,7 @@ current view, or the nearest contest to `default-directory'."
     ("r" "Run" rbx-run-view)
     ("t" "Tests" rbx-testset-view)
     ("c" "Contest" rbx-contest-view)
+    ("G" "Visualizations" rbx-visualization-gallery)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
     ("f" "Follow running problem" rbx-toggle-contest-follow
      :if-mode rbx-view-mode)
@@ -1472,7 +1589,9 @@ current view, or the nearest contest to `default-directory'."
     ("a" "Expected" rbx-open-expected :if-mode rbx-view-mode)
     ("o" "Output" rbx-open-output :if-mode rbx-view-mode)
     ("d" "Diff" rbx-diff-output :if-mode rbx-view-mode)
-    ("v" "Visualization" rbx-open-visualization :if-mode rbx-view-mode)
+    ("v" "Input visualization" rbx-open-visualization :if-mode rbx-view-mode)
+    ("A" "Answer visualization" rbx-open-answer-visualization
+     :if-mode rbx-view-mode)
     ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
     ("s" "Visit source" rbx-visit-testcase-source :if-mode rbx-view-mode)
     ("V" "Open validator" rbx-open-validator :if-mode rbx-view-mode)]

@@ -39,14 +39,13 @@ Code/VSIX packaging context (sideloading, remote SSH/devcontainer install,
 
 ## Visualizations
 
-- [ ] Visualization **gallery** view for an entire group (currently only a
-      single testcase's input visualization can be opened via
-      `rbx-open-visualization`).
-- [ ] Action to open the **answer** visualization (`rbx-testset-visualization-output`
-      is parsed but never surfaced — only `-input` is opened).
-- [ ] Dedicated visualization gallery panel for packages that declare
-      visualizers, independent of constraint-coverage visualization (already
-      done) and single-testcase image opening (already done).
+- [x] Visualization **gallery** view for an entire group
+      (`rbx-visualization-gallery`, key `G`).
+- [x] Action to open the **answer** visualization
+      (`rbx-open-answer-visualization`, key `A`).
+- [x] Dedicated visualization gallery panel for packages that declare
+      visualizers, with inline image thumbnails and link lines for HTML
+      visualizations, grouped like the testset browser.
 
 ## Variables in statements
 
