@@ -35,9 +35,6 @@ rbx's own design, safe to call while a package is being edited."
   :type 'string
   :group 'rbx)
 
-(defconst rbx-statement--timeout 10
-  "Seconds to wait for an `rbx vars' invocation before giving up.")
-
 (cl-defstruct (rbx-statement-vars-payload
                (:constructor rbx-statement-vars-payload-create))
   "The vars rbx reports for a package.
@@ -202,44 +199,22 @@ unresolvable name, or an unusable filter pipeline -- is silently dropped."
 (defun rbx-statement--run (root args input callback)
   "Run rbx with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
 
-INPUT may be nil to leave stdin untouched.  CALLBACK is invoked with
-\(STDOUT STDERR EXIT-CODE); EXIT-CODE is nil when the process could not be
-started or timed out."
-  (let* ((stdout-buffer (generate-new-buffer " *rbx-statement-stdout*"))
-         (stderr-buffer (generate-new-buffer " *rbx-statement-stderr*"))
-         (done nil)
-         timer process)
-    (cl-labels
-        ((finish (exit-code)
-           (unless done
-             (setq done t)
-             (when timer (cancel-timer timer))
-             (when (and process (process-live-p process))
-               (delete-process process))
-             (let ((stdout (with-current-buffer stdout-buffer (buffer-string)))
-                   (stderr (with-current-buffer stderr-buffer (buffer-string))))
-               (kill-buffer stdout-buffer)
-               (kill-buffer stderr-buffer)
-               (funcall callback stdout stderr exit-code)))))
-      (condition-case nil
-          (progn
-            (setq process
-                  (let ((default-directory (file-name-as-directory root)))
-                    (make-process
-                     :name "rbx-statement"
-                     :buffer stdout-buffer
-                     :stderr stderr-buffer
-                     :command (cons rbx-program args)
-                     :noquery t
-                     :sentinel
-                     (lambda (proc _event)
-                       (unless (process-live-p proc)
-                         (finish (process-exit-status proc)))))))
-            (setq timer (run-at-time rbx-statement--timeout nil
-                                      (lambda () (finish nil))))
-            (when input (process-send-string process input))
-            (process-send-eof process))
-        (error (finish nil))))))
+Resolves `rbx-program' via `rbx-resolve-executable' first; when it cannot
+be found at all, warns once and calls CALLBACK as though the process had
+failed, without attempting a spawn that can only fail.  See
+`rbx-run-process' for CALLBACK's contract otherwise."
+  (let ((program (rbx-resolve-executable rbx-program "rbx" root)))
+    (if (null program)
+        (progn
+          (rbx--warn-once
+           'rbx
+           (format
+            "rbx.el could not find rbx (checked `rbx-program' (%s), PATH, \
+and a login shell); statement variable hints are unavailable until it is \
+installed or `rbx-program' is set."
+            rbx-program))
+          (funcall callback "" "" nil))
+      (rbx-run-process root program args input callback))))
 
 (defconst rbx-statement--invalid (make-symbol "rbx-statement-invalid")
   "Sentinel returned by a payload reader for a value of the wrong shape.")

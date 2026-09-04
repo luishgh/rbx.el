@@ -32,6 +32,10 @@ project follows [Semantic Versioning](https://semver.org/).
   read-only `rbx vars`/`rbx vars --render` the same way the VS Code
   extension does — the one deliberate exception to this package never
   invoking rbx. New `rbx-statement-var-hints` and `rbx-program` settings.
+- Login-shell `PATH` fallback for `rbx-yq-program`/`rbx-program`, matching
+  the VS Code extension: a GUI Emacs's `PATH` does not necessarily match
+  the user's shell. A total failure to resolve either executable is now
+  reported once via `display-warning` instead of degrading silently.
 
 ### Changed
 

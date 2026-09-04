@@ -127,65 +127,41 @@
     (should (= (length refs) 2))
     (should (equal (mapcar #'rbx-statement-var-ref-text refs) '("200" "1")))))
 
-(defun rbx-statement-test--write-fake-rbx (root script)
-  "Write SCRIPT as an executable fake rbx program under ROOT."
-  (let ((path (expand-file-name "fake-rbx" root)))
-    (with-temp-file path
-      (insert "#!/bin/sh\n" script))
-    (set-file-modes path #o755)
-    path))
-
-(defun rbx-statement-test--wait (predicate &optional timeout)
-  "Process output until PREDICATE is non-nil or TIMEOUT (default 5s) elapses."
-  (let ((deadline (+ (float-time) (or timeout 5))))
-    (while (and (not (funcall predicate)) (< (float-time) deadline))
-      (accept-process-output nil 0.05))
-    (funcall predicate)))
-
-(ert-deftest rbx-statement-run-captures-stdout-stderr-and-exit-code ()
+(ert-deftest rbx-statement-run-delegates-to-rbx-run-process-when-resolved ()
   (rbx-test-with-directory root
-    (let ((rbx-program (rbx-statement-test--write-fake-rbx
-                        root "echo out; echo err >&2; exit 3\n"))
-          result)
-      (rbx-statement--run root nil nil
-                         (lambda (stdout stderr exit-code)
-                           (setq result (list stdout stderr exit-code))))
-      (should (rbx-statement-test--wait (lambda () result)))
-      (should (equal (nth 0 result) "out\n"))
-      (should (equal (nth 1 result) "err\n"))
-      (should (= (nth 2 result) 3)))))
+    (let (delegated-args result)
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                (lambda (configured fallback given-root)
+                  (should (equal configured rbx-program))
+                  (should (equal fallback "rbx"))
+                  (should (equal given-root root))
+                  "/usr/bin/rbx"))
+               ((symbol-function 'rbx-run-process)
+                (lambda (given-root program args input callback)
+                  (setq delegated-args (list given-root program args input))
+                  (funcall callback "out" "" 0))))
+        (rbx-statement--run root '("vars" "--json") "in"
+                           (lambda (stdout stderr exit-code)
+                             (setq result (list stdout stderr exit-code))))
+        (should (equal delegated-args (list root "/usr/bin/rbx"
+                                            '("vars" "--json") "in")))
+        (should (equal result '("out" "" 0)))))))
 
-(ert-deftest rbx-statement-run-writes-stdin ()
+(ert-deftest rbx-statement-run-declines-without-attempting-a-spawn ()
   (rbx-test-with-directory root
-    (let ((rbx-program (rbx-statement-test--write-fake-rbx root "cat\n"))
-          result)
-      (rbx-statement--run root nil "hello\n"
-                         (lambda (stdout _stderr exit-code)
-                           (setq result (cons stdout exit-code))))
-      (should (rbx-statement-test--wait (lambda () result)))
-      (should (equal (car result) "hello\n"))
-      (should (= (cdr result) 0)))))
-
-(ert-deftest rbx-statement-run-handles-spawn-error ()
-  (rbx-test-with-directory root
-    (let ((rbx-program (expand-file-name "does-not-exist" root))
-          (got nil) result)
-      (rbx-statement--run root nil nil
-                         (lambda (_stdout _stderr exit-code)
-                           (setq got t result exit-code)))
-      (should (rbx-statement-test--wait (lambda () got)))
-      (should-not result))))
-
-(ert-deftest rbx-statement-run-times-out ()
-  (rbx-test-with-directory root
-    (let ((rbx-program (rbx-statement-test--write-fake-rbx root "sleep 5\n"))
-          (rbx-statement--timeout 0.3)
-          (got nil) result)
-      (rbx-statement--run root nil nil
-                         (lambda (_stdout _stderr exit-code)
-                           (setq got t result exit-code)))
-      (should (rbx-statement-test--wait (lambda () got) 3))
-      (should-not result))))
+    (let (spawned result warned)
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                (lambda (&rest _args) nil))
+               ((symbol-function 'rbx-run-process)
+                (lambda (&rest _args) (setq spawned t)))
+               ((symbol-function 'display-warning)
+                (lambda (&rest _args) (setq warned t))))
+        (rbx-statement--run root nil nil
+                           (lambda (stdout stderr exit-code)
+                             (setq result (list stdout stderr exit-code))))
+        (should-not spawned)
+        (should warned)
+        (should (equal result '("" "" nil)))))))
 
 (ert-deftest rbx-statement-parse-vars-with-groups-tolerates-ansi-and-noise ()
   (let ((payload (rbx-statement--parse-vars-with-groups

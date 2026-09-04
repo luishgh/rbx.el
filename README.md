@@ -165,6 +165,12 @@ nothing, never a guess.
 - `rbx-compilation-diagnostics`: enable or disable the Flymake backend.
 - `rbx-statement-var-hints`: enable or disable `\VAR{...}` value hints.
 - `rbx-program`: path to the `rbx` executable used for statement hints.
+  Resolved against the process `PATH` and, failing that, a login shell
+  (`$SHELL -lic "command -v rbx"`) — useful when Emacs was launched from a
+  desktop icon rather than a terminal. A total failure to find it is
+  reported once via `display-warning`, not silently.
+- `rbx-yq-program`: path to the `yq` executable used to read YAML
+  artifacts, resolved and reported the same way as `rbx-program`.
 - `rbx-refresh-delay`: debounce interval for filesystem notifications.
 
 Use `M-x customize-group RET rbx` to edit these settings interactively.

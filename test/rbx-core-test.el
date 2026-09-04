@@ -18,7 +18,9 @@
   (rbx-test-with-directory root
     (let ((path (rbx-test-write root "artifact.yml" "ignored: by stub\n"))
           invocation)
-      (cl-letf (((symbol-function 'process-file)
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                 (lambda (configured _fallback) configured))
+                ((symbol-function 'process-file)
                  (lambda (program input destination display &rest arguments)
                    (setq invocation
                          (list program input destination display arguments))
@@ -38,7 +40,9 @@
   (rbx-test-with-directory root
     (let ((path (rbx-test-write root "artifact.yml"
                                 "still: being-written\n")))
-      (cl-letf (((symbol-function 'process-file)
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                 (lambda (configured _fallback) configured))
+                ((symbol-function 'process-file)
                  (lambda (&rest _arguments)
                    (insert "conversion failed")
                    1)))
@@ -188,6 +192,160 @@
           (sleep-for 0.01)
           (should (equal notified (list package-b)))
           (mapc #'rbx-stop-watcher watchers))))))
+
+(ert-deftest rbx-run-process-captures-stdout-stderr-and-exit-code ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable
+                    root "fake" "echo out; echo err >&2; exit 3\n"))
+          result)
+      (rbx-run-process root program nil nil
+                       (lambda (stdout stderr exit-code)
+                         (setq result (list stdout stderr exit-code))))
+      (should (rbx-test-wait (lambda () result)))
+      (should (equal (nth 0 result) "out\n"))
+      (should (equal (nth 1 result) "err\n"))
+      (should (= (nth 2 result) 3)))))
+
+(ert-deftest rbx-run-process-writes-stdin ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "cat\n"))
+          result)
+      (rbx-run-process root program nil "hello\n"
+                       (lambda (stdout _stderr exit-code)
+                         (setq result (cons stdout exit-code))))
+      (should (rbx-test-wait (lambda () result)))
+      (should (equal (car result) "hello\n"))
+      (should (= (cdr result) 0)))))
+
+(ert-deftest rbx-run-process-handles-spawn-error ()
+  (rbx-test-with-directory root
+    (let ((program (expand-file-name "does-not-exist" root))
+          (got nil) result)
+      (rbx-run-process root program nil nil
+                       (lambda (_stdout _stderr exit-code)
+                         (setq got t result exit-code)))
+      (should (rbx-test-wait (lambda () got)))
+      (should-not result))))
+
+(ert-deftest rbx-run-process-times-out ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "sleep 5\n"))
+          (got nil) result)
+      (rbx-run-process root program nil nil
+                       (lambda (_stdout _stderr exit-code)
+                         (setq got t result exit-code))
+                       0.3)
+      (should (rbx-test-wait (lambda () got) 3))
+      (should-not result))))
+
+(ert-deftest rbx-run-process-sync-blocks-until-callback ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "echo hi\n")))
+      (should (equal (rbx--run-process-sync root program nil nil)
+                     '("hi\n" "" 0))))))
+
+(ert-deftest rbx-command-available-p-true-for-a-working-executable ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "exit 0\n")))
+      (should (rbx--command-available-p program root)))))
+
+(ert-deftest rbx-command-available-p-false-for-a-failing-executable ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "exit 1\n")))
+      (should-not (rbx--command-available-p program root)))))
+
+(ert-deftest rbx-login-shell-path-finds-the-command ()
+  (rbx-test-with-directory root
+    (let* ((target (rbx-test-write-executable root "real-tool" "exit 0\n"))
+          (shell (rbx-test-write-executable
+                  root "fake-shell"
+                  (format "echo noise\necho %s\n" target))))
+      (let ((process-environment (cons (format "SHELL=%s" shell)
+                                       process-environment)))
+        (should (equal (rbx--login-shell-path "real-tool" root) target))))))
+
+(ert-deftest rbx-login-shell-path-nil-when-not-found ()
+  (rbx-test-with-directory root
+    (let ((shell (rbx-test-write-executable root "fake-shell" "true\n")))
+      (let ((process-environment (cons (format "SHELL=%s" shell)
+                                       process-environment)))
+        (should-not (rbx--login-shell-path "nope" root))))))
+
+(ert-deftest rbx-resolve-executable-prefers-configured-then-path-then-login-shell ()
+  (rbx-test-with-directory root
+    (let (tried)
+      (cl-letf (((symbol-function 'rbx--command-available-p)
+                (lambda (command _root)
+                  (push command tried)
+                  (equal command "found-on-login-shell")))
+               ((symbol-function 'rbx--login-shell-path)
+                (lambda (_name _root) "found-on-login-shell")))
+        (should (equal (rbx-resolve-executable "configured-tool" "fallback" root)
+                      "found-on-login-shell"))
+        (should (equal (nreverse tried)
+                      '("configured-tool" "fallback" "found-on-login-shell")))))))
+
+(ert-deftest rbx-resolve-executable-skips-configured-when-same-as-fallback ()
+  (rbx-test-with-directory root
+    (cl-letf (((symbol-function 'rbx--command-available-p)
+              (lambda (command _root) (equal command "fallback"))))
+      (should (equal (rbx-resolve-executable "fallback" "fallback" root)
+                    "fallback")))))
+
+(ert-deftest rbx-resolve-executable-caches-per-fallback-and-root ()
+  (rbx-test-with-directory root
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'rbx--command-available-p)
+                (lambda (&rest _args) (cl-incf calls) t)))
+        (should (equal (rbx-resolve-executable nil "fallback" root) "fallback"))
+        (should (= calls 1))
+        (should (equal (rbx-resolve-executable nil "fallback" root) "fallback"))
+        (should (= calls 1))))))
+
+(ert-deftest rbx-resolve-executable-caches-a-failed-resolution ()
+  (rbx-test-with-directory root
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'rbx--command-available-p)
+                (lambda (&rest _args) (cl-incf calls) nil))
+               ((symbol-function 'rbx--login-shell-path)
+                (lambda (&rest _args) nil)))
+        (should-not (rbx-resolve-executable nil "fallback" root))
+        (let ((after-first calls))
+          (should-not (rbx-resolve-executable nil "fallback" root))
+          (should (= calls after-first)))))))
+
+(ert-deftest rbx-reset-executables-clears-the-cache ()
+  (rbx-test-with-directory root
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'rbx--command-available-p)
+                (lambda (&rest _args) (cl-incf calls) t)))
+        (rbx-resolve-executable nil "fallback" root)
+        (rbx-reset-executables)
+        (rbx-resolve-executable nil "fallback" root)
+        (should (= calls 2))))))
+
+(ert-deftest rbx-warn-once-shows-a-message-only-once ()
+  (let ((calls 0))
+    (cl-letf (((symbol-function 'display-warning)
+              (lambda (&rest _args) (cl-incf calls))))
+      (rbx--warn-once 'test-key "message")
+      (rbx--warn-once 'test-key "message")
+      (should (= calls 1))
+      (rbx-reset-executables)
+      (rbx--warn-once 'test-key "message")
+      (should (= calls 2)))))
+
+(ert-deftest rbx-read-yaml-warns-once-when-yq-cannot-be-resolved ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "artifact.yml" "a: 1\n"))
+          (warnings 0))
+      (rbx-reset-executables)
+      (cl-letf (((symbol-function 'rbx-resolve-executable) (lambda (&rest _args) nil))
+               ((symbol-function 'display-warning)
+                (lambda (&rest _args) (cl-incf warnings))))
+        (should-not (rbx-read-yaml path))
+        (should-not (rbx-read-yaml path))
+        (should (= warnings 1))))))
 
 (provide 'rbx-core-test)
 ;;; rbx-core-test.el ends here

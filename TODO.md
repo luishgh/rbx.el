@@ -74,12 +74,16 @@ of never invoking rbx (see `AGENTS.md`).
 
 ## Finding rbx / yq
 
-- [ ] Login-shell `PATH` fallback for GUI Emacs sessions where `yq` isn't
-      visible on the process `PATH` (no `exec-path-from-shell`-style
-      resolution around `rbx-yq-program`).
-- [ ] Explicit, visible degradation message when `yq` is missing or fails,
-      rather than `rbx-read-yaml` silently returning nil and the view
-      reporting "No run artifacts yet" even though artifacts exist.
+- [x] Login-shell `PATH` fallback for GUI Emacs sessions where `yq` (or,
+      since statement hints, `rbx` itself) isn't visible on the process
+      `PATH` (`rbx-resolve-executable`, mirroring the VS Code extension's
+      `rbx/executable.ts`).
+- [x] Explicit, visible degradation message when `yq`/`rbx` is missing
+      entirely, via a one-time `display-warning` (`rbx--warn-once`)
+      instead of `rbx-read-yaml` silently returning nil. A conversion that
+      fails on a specific, resolvable `yq` (as opposed to `yq` being
+      entirely unavailable) still degrades silently, since that can be a
+      transient artifact write in progress.
 
 ## Run view polish
 

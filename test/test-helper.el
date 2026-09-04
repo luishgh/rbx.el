@@ -24,6 +24,21 @@
       (insert contents))
     path))
 
+(defun rbx-test-write-executable (root name script)
+  "Write SCRIPT as an executable shell program named NAME under ROOT."
+  (let ((path (expand-file-name name root)))
+    (with-temp-file path
+      (insert "#!/bin/sh\n" script))
+    (set-file-modes path #o755)
+    path))
+
+(defun rbx-test-wait (predicate &optional timeout)
+  "Process output until PREDICATE is non-nil or TIMEOUT (default 5s) elapses."
+  (let ((deadline (+ (float-time) (or timeout 5))))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (accept-process-output nil 0.05))
+    (funcall predicate)))
+
 (provide 'test-helper)
 ;;; test-helper.el ends here
 

@@ -81,27 +81,181 @@ BUILD-DIR is the build directory relative to ROOT."
   (interactive)
   (clrhash rbx--build-directory-cache))
 
+(defun rbx-run-process (root program args input callback &optional timeout)
+  "Run PROGRAM with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
+
+INPUT may be nil to leave stdin untouched.  CALLBACK is invoked with
+\(STDOUT STDERR EXIT-CODE); EXIT-CODE is nil when the process could not be
+started or timed out after TIMEOUT seconds (default 10)."
+  (let* ((stdout-buffer (generate-new-buffer " *rbx-process-stdout*"))
+         (stderr-buffer (generate-new-buffer " *rbx-process-stderr*"))
+         (done nil)
+         timer process)
+    (cl-labels
+        ((finish (exit-code)
+           (unless done
+             (setq done t)
+             (when timer (cancel-timer timer))
+             (when (and process (process-live-p process))
+               (delete-process process))
+             (let ((stdout (with-current-buffer stdout-buffer (buffer-string)))
+                   (stderr (with-current-buffer stderr-buffer (buffer-string))))
+               (kill-buffer stdout-buffer)
+               (kill-buffer stderr-buffer)
+               (funcall callback stdout stderr exit-code)))))
+      (condition-case nil
+          (progn
+            (setq process
+                  (let ((default-directory (file-name-as-directory root)))
+                    (make-process
+                     :name "rbx-process"
+                     :buffer stdout-buffer
+                     :stderr stderr-buffer
+                     :command (cons program args)
+                     :noquery t
+                     :sentinel
+                     (lambda (proc _event)
+                       (unless (process-live-p proc)
+                         (finish (process-exit-status proc)))))))
+            (setq timer (run-at-time (or timeout 10) nil
+                                      (lambda () (finish nil))))
+            (when input (process-send-string process input))
+            (process-send-eof process))
+        (error (finish nil))))))
+
+(defun rbx--run-process-sync (root program args input &optional timeout)
+  "Run PROGRAM synchronously in ROOT with ARGS and INPUT.
+
+See `rbx-run-process' for the arguments' meaning.  Return
+\(STDOUT STDERR EXIT-CODE), blocking the caller until it settles."
+  (let (result)
+    (rbx-run-process root program args input
+                     (lambda (stdout stderr exit-code)
+                       (setq result (list stdout stderr exit-code)))
+                     timeout)
+    (while (not result)
+      (accept-process-output nil 0.05))
+    result))
+
+(defun rbx--command-available-p (command root)
+  "Return non-nil when COMMAND exits zero on `--version' in ROOT."
+  (eql (nth 2 (rbx--run-process-sync root command '("--version") nil 5)) 0))
+
+(defun rbx--login-shell-path (name root)
+  "Return the absolute path a login shell resolves NAME to in ROOT, or nil.
+
+Tries `$SHELL -lic \"command -v NAME\"', since a GUI Emacs's PATH is
+inherited from whatever launched it rather than the user's shell: profile
+and rc files are only read by a login, interactive shell.  An interactive
+login shell can print banners first, so the last output line starting
+with `/' is taken as the answer."
+  (let* ((shell (or (getenv "SHELL") "/bin/sh"))
+         (probe (format "command -v %s" (shell-quote-argument name)))
+         (stdout (nth 0 (rbx--run-process-sync root shell (list "-lic" probe)
+                                               nil 5))))
+    (car (last (seq-filter (lambda (line) (string-prefix-p "/" line))
+                           (split-string stdout "\n" t))))))
+
+(defconst rbx--executable-unresolved (make-symbol "rbx-executable-unresolved")
+  "Sentinel meaning an executable has not been resolved yet.")
+
+(defconst rbx--executable-unavailable (make-symbol "rbx-executable-unavailable")
+  "Sentinel cached when every candidate for an executable failed.")
+
+(defvar rbx--executable-cache (make-hash-table :test #'equal)
+  "Resolved executables, keyed by (FALLBACK . ROOT).")
+
+(defvar rbx--warned-once (make-hash-table :test #'equal)
+  "Keys already shown via `rbx--warn-once' this session.")
+
+(defun rbx-reset-executables ()
+  "Forget all cached executable resolutions and one-time warnings."
+  (interactive)
+  (clrhash rbx--executable-cache)
+  (clrhash rbx--warned-once))
+
+(defun rbx--warn-once (key message)
+  "Show MESSAGE via `display-warning' at most once per KEY this session."
+  (unless (gethash key rbx--warned-once)
+    (puthash key t rbx--warned-once)
+    (display-warning 'rbx message :warning)))
+
+(defun rbx--executable-candidates (configured fallback)
+  "Return (COMMAND . SOURCE) candidates to try for FALLBACK, in order.
+
+CONFIGURED is the user's override, tried first when set to something other
+than FALLBACK itself.  SOURCE is `path' or `login-shell'; only FALLBACK
+itself is ever tried via a login shell."
+  (append
+   (when (and configured (not (string-empty-p configured))
+             (not (equal configured fallback)))
+     (list (cons configured 'path)))
+   (list (cons fallback 'path) (cons fallback 'login-shell))))
+
+(defun rbx--resolve-candidate (command source root)
+  "Return COMMAND if it is usable via SOURCE in ROOT, or nil."
+  (pcase source
+    ('login-shell
+     (let ((path (rbx--login-shell-path command root)))
+       (and path (rbx--command-available-p path root) path)))
+    (_ (and (rbx--command-available-p command root) command))))
+
+(defun rbx-resolve-executable (configured fallback &optional root)
+  "Resolve the executable to run for FALLBACK (e.g. \"yq\" or \"rbx\").
+
+CONFIGURED is the user's customized program name or path.  Tries
+CONFIGURED, then FALLBACK on the process `PATH', then FALLBACK via a login
+shell -- a GUI Emacs's PATH does not necessarily match the user's shell.
+Resolution, including a total failure, is cached per FALLBACK and ROOT
+\(which defaults to `default-directory')."
+  (let* ((root (or root default-directory))
+         (key (cons fallback root))
+         (cached (gethash key rbx--executable-cache rbx--executable-unresolved)))
+    (if (not (eq cached rbx--executable-unresolved))
+        (unless (eq cached rbx--executable-unavailable) cached)
+      (let ((resolved
+             (seq-some
+              (lambda (candidate)
+                (rbx--resolve-candidate (car candidate) (cdr candidate) root))
+              (rbx--executable-candidates configured fallback))))
+        (puthash key (or resolved rbx--executable-unavailable)
+                rbx--executable-cache)
+        resolved))))
+
 (defun rbx-read-yaml (path)
   "Convert YAML at PATH with `rbx-yq-program' and read its JSON.
 
 Return nil when PATH is missing, unreadable, empty, or temporarily invalid.
 This tolerance is important because artifact files can be observed between a
-truncate and the completing rename or write."
+truncate and the completing rename or write.  Also returns nil, after a
+one-time `display-warning', when `rbx-yq-program' cannot be resolved at
+all -- see `rbx-resolve-executable'."
   (condition-case nil
       (when (file-readable-p path)
-        (with-temp-buffer
-          (when (zerop
-                 (process-file rbx-yq-program nil t nil
-                               "--input-format=yaml"
-                               "--output-format=json"
-                               "--no-colors" "--indent=0"
-                               "." (expand-file-name path)))
-            (goto-char (point-min))
-            (unless (eobp)
-              (json-parse-buffer :object-type 'alist
-                                 :array-type 'list
-                                 :null-object nil
-                                 :false-object :false)))))
+        (let ((program (rbx-resolve-executable rbx-yq-program "yq")))
+          (if (null program)
+              (progn
+                (rbx--warn-once
+                 'yq
+                 (format
+                  "rbx.el could not find yq (checked `rbx-yq-program' (%s), \
+PATH, and a login shell); YAML artifacts cannot be read until it is \
+installed or `rbx-yq-program' is set."
+                  rbx-yq-program))
+                nil)
+            (with-temp-buffer
+              (when (zerop
+                     (process-file program nil t nil
+                                   "--input-format=yaml"
+                                   "--output-format=json"
+                                   "--no-colors" "--indent=0"
+                                   "." (expand-file-name path)))
+                (goto-char (point-min))
+                (unless (eobp)
+                  (json-parse-buffer :object-type 'alist
+                                     :array-type 'list
+                                     :null-object nil
+                                     :false-object :false)))))))
     (error nil)))
 
 (defun rbx--wire-mapping-p (value)
