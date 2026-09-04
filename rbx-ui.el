@@ -177,6 +177,9 @@ adjusted by the user remains intact."
   "Face for a passing run that still carries a warning."
   :group 'rbx)
 
+(define-fringe-bitmap 'rbx-fringe-tick
+  [#x00 #x01 #x02 #x04 #x88 #x50 #x20 #x00])
+
 (defface rbx-row-mismatch
   '((((class color) (background light)) :background "#fdecec" :extend t)
     (((class color) (background dark)) :background "#2f2222" :extend t)
@@ -273,6 +276,9 @@ Non-nil exactly when the current run view is following, per
 
 (defvar-local rbx--result-window nil
   "Window reserved for testcase output by the current view.")
+
+(defvar-local rbx--fringe-overlays nil
+  "Overlays showing per-solution fringe indicators in the current run view.")
 
 (define-derived-mode rbx-view-mode magit-section-mode "rbx"
   "Major mode for browsing rbx run and testset artifacts."
@@ -422,6 +428,30 @@ Non-nil exactly when the current run view is following, per
    (warning 'warned)
    (t 'met)))
 
+(defun rbx--solution-fringe-spec (state)
+  "Return a (BITMAP . FACE) fringe spec for solution row STATE.
+
+STATE is one of `rbx--row-state's values."
+  (pcase state
+    ('met (cons 'rbx-fringe-tick 'rbx-match))
+    ('missed (cons 'right-triangle 'rbx-mismatch))
+    ('warned (cons 'exclamation-mark 'rbx-warning))))
+
+(defun rbx--clear-fringe-overlays ()
+  "Remove this buffer's solution fringe overlays."
+  (mapc #'delete-overlay rbx--fringe-overlays)
+  (setq rbx--fringe-overlays nil))
+
+(defun rbx--insert-solution-fringe (state)
+  "Place a fringe indicator for STATE on the line just inserted at point."
+  (let* ((spec (rbx--solution-fringe-spec state))
+         (beg (line-beginning-position 0))
+         (overlay (make-overlay beg (1+ beg))))
+    (overlay-put overlay 'before-string
+                 (propertize "!" 'display
+                            (list 'left-fringe (car spec) (cdr spec))))
+    (push overlay rbx--fringe-overlays)))
+
 (defun rbx--decorate-row (line state)
   "Apply STATE's reserved background wash to LINE."
   (let ((decorated (copy-sequence line))
@@ -541,6 +571,10 @@ Non-nil exactly when the current run view is following, per
                             solution-report)
                            (rbx-solution-report-sanitizer-warnings
                             solution-report))))
+         (state (and solution-report
+                    (rbx--row-state
+                     (rbx-solution-report-matches-expectation solution-report)
+                     warning)))
          (context (list :kind 'solution :package package :solution solution)))
     (magit-insert-section (rbx-solution-section context)
       (magit-insert-heading
@@ -569,9 +603,7 @@ Non-nil exactly when the current run view is following, per
                          (equal (rbx-solution-report-status solution-report)
                                 "OK")
                        (rbx-solution-report-status solution-report))))
-            (rbx--row-state
-             (rbx-solution-report-matches-expectation solution-report)
-             warning))
+            state)
          (format "… %s  declared %s  %d/%d\n"
                  (rbx--fontify
                   (rbx--solution-label solution
@@ -580,6 +612,8 @@ Non-nil exactly when the current run view is following, per
                    (rbx-solution-expected-outcome solution)))
                  (rbx--expected (rbx-solution-expected-outcome solution))
                  (car progress) (cdr progress))))
+      (when state
+        (rbx--insert-solution-fringe state))
       (dolist (group groups)
         (rbx--insert-run-group
          package solution group (gethash group entries-by-group)
@@ -621,6 +655,7 @@ Non-nil exactly when the current run view is following, per
 
 (defun rbx--insert-run-view (package)
   "Insert PACKAGE's run view at point."
+  (rbx--clear-fringe-overlays)
   (if-let ((skeleton (rbx-load-skeleton package)))
       (let ((report (rbx-load-report package))
             (groups (rbx-skeleton-ordered-groups skeleton))

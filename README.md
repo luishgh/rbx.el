@@ -18,7 +18,8 @@ extension calls them the same way.
 
 - Live run view: solution → group → testcase, refreshed as `.eval` files land.
 - Three distinct status channels: declared expectation, actual verdict, and
-  whether the run met the declaration.
+  whether the run met the declaration — the last shown both inline and as a
+  left-fringe indicator (tick, red triangle, or yellow warning) per solution.
 - Aggregate verdicts, scores, maximum time, and memory read from rbx's own
   `.rbx/runs/report.yml`; the Emacs package does not duplicate verdict logic.
 - Compiler warnings and failures in the run view and through Flymake.

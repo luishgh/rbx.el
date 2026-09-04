@@ -87,6 +87,7 @@ of never invoking rbx (see `AGENTS.md`).
 
 ## Run view polish
 
-- [ ] Actual gutter/fringe indicators (tick / red triangle / yellow warning)
+- [x] Actual gutter/fringe indicators (tick / red triangle / yellow warning)
       per solution, distinct from the inline match-marker glyphs
-      (`rbx--match-marker`) already shown in the heading text.
+      (`rbx--match-marker`) already shown in the heading text
+      (left-fringe overlays via `rbx--insert-solution-fringe`).

@@ -789,5 +789,63 @@
    (rbx-open-gallery-visualization (list :kind 'gallery-visualization))
    :type 'user-error))
 
+(ert-deftest rbx-solution-fringe-spec-maps-states-to-bitmaps-and-faces ()
+  (should (equal (rbx--solution-fringe-spec 'met)
+                '(rbx-fringe-tick . rbx-match)))
+  (should (equal (rbx--solution-fringe-spec 'missed)
+                '(right-triangle . rbx-mismatch)))
+  (should (equal (rbx--solution-fringe-spec 'warned)
+                '(exclamation-mark . rbx-warning))))
+
+(ert-deftest rbx-insert-solution-places-a-fringe-overlay-for-a-matched-solution ()
+  (let* ((solution (rbx-solution-create :path "sols/ac.cpp"
+                                        :expected-outcome "ACCEPTED" :index 0))
+         (skeleton (rbx-skeleton-create :solutions (list solution) :entries nil
+                                        :groups nil :compilation nil))
+         (solution-report (rbx-solution-report-create
+                           :path "sols/ac.cpp" :index 0
+                           :expected-outcome "ACCEPTED" :outcome "accepted"
+                           :status "OK" :matches-expectation t
+                           :score 100 :max-score 100 :groups nil))
+         (report (rbx-run-report-create :solutions (list solution-report)))
+         (package (rbx-package-create :root "/tmp/" :build-dir "build")))
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--clear-fringe-overlays)
+        (rbx--insert-solution package skeleton report solution nil
+                              (make-hash-table :test #'equal)))
+      (should (= (length rbx--fringe-overlays) 1))
+      (let* ((overlay (car rbx--fringe-overlays))
+            (before (overlay-get overlay 'before-string))
+            (display (get-text-property 0 'display before)))
+        (should (equal display (list 'left-fringe 'rbx-fringe-tick
+                                     'rbx-match)))))))
+
+(ert-deftest rbx-insert-solution-skips-fringe-for-a-pending-solution ()
+  (let* ((solution (rbx-solution-create :path "sols/ac.cpp"
+                                        :expected-outcome "ACCEPTED" :index 0))
+         (skeleton (rbx-skeleton-create :solutions (list solution) :entries nil
+                                        :groups nil :compilation nil))
+         (package (rbx-package-create :root "/tmp/" :build-dir "build")))
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--clear-fringe-overlays)
+        (rbx--insert-solution package skeleton nil solution nil
+                              (make-hash-table :test #'equal)))
+      (should-not rbx--fringe-overlays))))
+
+(ert-deftest rbx-clear-fringe-overlays-removes-stale-overlays ()
+  (with-temp-buffer
+    (rbx-view-mode)
+    (let ((inhibit-read-only t))
+      (insert "line\n")
+      (rbx--insert-solution-fringe 'met)
+      (should (= (length rbx--fringe-overlays) 1))
+      (rbx--clear-fringe-overlays)
+      (should-not rbx--fringe-overlays)
+      (should-not (overlays-in (point-min) (point-max))))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

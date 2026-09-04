@@ -9,6 +9,8 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Left-fringe indicators per solution in the run view (tick, red triangle,
+  or yellow warning), distinct from the existing inline match-marker glyph.
 - Contest support: discovery and tolerant parsing of `contest.rbx.yml` and
   its `contest.<id>.rbx.yml` variant siblings, problem labeling by declared
   contest letter and color, division disambiguation when two contests share
