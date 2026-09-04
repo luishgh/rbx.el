@@ -19,6 +19,9 @@ project follows [Semantic Versioning](https://semver.org/).
   validator message and test origin, for both run and built-test browsing.
 - Actions to jump to a testcase's generator script line or copied-from
   source (`s`), and to open a testset testcase's validator source (`V`).
+- A collapsible "Testset statistics" section in the testset view, with
+  total and per-group testcase counts, input/output sizes, and a
+  proportional bar per group.
 
 ### Changed
 

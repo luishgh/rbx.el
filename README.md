@@ -20,6 +20,8 @@ the package and renders the artifacts that land on disk.
 - Compiler warnings and failures in the run view and through Flymake.
 - Built testset browser with generator/copy provenance, validation status,
   artifact sizes, visualizations, and constraint coverage.
+- Aggregate testset statistics: total and per-group testcase counts and
+  input/output sizes, with a proportional bar per group.
 - Read-only input, expected answer, output, stderr, and log buffers.
 - A dedicated testcase info card showing the full, wrapped checker or
   validator message and the test's origin (generator call, generator

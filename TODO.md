@@ -32,9 +32,10 @@ Code/VSIX packaging context (sideloading, remote SSH/devcontainer install,
 
 ## Testset statistics
 
-- [ ] Dedicated Testset Statistics view: aggregate size and count
+- [x] Dedicated Testset Statistics view: aggregate size and count
       information, group-by-group breakdown, and a visual representation
-      (only per-testcase input size is currently shown inline).
+      (collapsible "Testset statistics" section in the testset view, with a
+      proportional bar per group).
 
 ## Visualizations
 

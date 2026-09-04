@@ -101,6 +101,11 @@
   "A testset entry joined with its build-time metadata."
   entry stem test)
 
+(cl-defstruct (rbx-testset-group-stats
+               (:constructor rbx-testset-group-stats-create))
+  "Aggregate size and count statistics for one testset group."
+  group count input-size output-size)
+
 (cl-defstruct (rbx-contest-problem
                (:constructor rbx-contest-problem-create))
   "One declared problem entry in a contest manifest."
@@ -515,6 +520,29 @@ Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
                              (rbx-testcase-index entry))
                        by-key)))
      (rbx-testset-entries testset))))
+
+(defun rbx-testset-statistics (testset)
+  "Return per-group `rbx-testset-group-stats' for TESTSET.
+
+Groups are returned in `rbx-testset-ordered-groups' order, and a group with
+no testcases is omitted."
+  (let ((by-group (make-hash-table :test #'equal)))
+    (dolist (testcase (rbx-testset-testcases testset))
+      (let* ((group (rbx-testcase-group (rbx-testset-testcase-entry testcase)))
+             (test (rbx-testset-testcase-test testcase))
+             (stats (or (gethash group by-group)
+                       (rbx-testset-group-stats-create
+                        :group group :count 0 :input-size 0 :output-size 0))))
+        (cl-incf (rbx-testset-group-stats-count stats))
+        (when test
+          (cl-incf (rbx-testset-group-stats-input-size stats)
+                   (or (rbx-testset-test-input-size test) 0))
+          (cl-incf (rbx-testset-group-stats-output-size stats)
+                   (or (rbx-testset-test-output-size test) 0)))
+        (puthash group stats by-group)))
+    (delq nil
+         (mapcar (lambda (group) (gethash group by-group))
+                (rbx-testset-ordered-groups testset)))))
 
 (defun rbx-skeleton-ordered-groups (skeleton)
   "Return nonempty group names in SKELETON declaration order."

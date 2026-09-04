@@ -559,5 +559,68 @@
      (rbx-open-validator (list :kind 'testset-testcase :testcase testcase))
      :type 'user-error)))
 
+(ert-deftest rbx-render-testset-shows-aggregate-statistics ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (rbx-test-write
+     root "build/testset.yml"
+     (concat
+      "version: 1\ntask_type: BATCH\n"
+      "groups:\n  - name: samples\n  - name: main\n"
+      "entries:\n"
+      "  - group_entry: {group: samples, index: 0}\n"
+      "    metadata: {copied_to: {inputPath: build/tests/samples/000.in}}\n"
+      "  - group_entry: {group: main, index: 0}\n"
+      "    metadata: {generator_call: {name: gen, args: '5 3'}}\n"
+      "tests:\n"
+      "  - group: samples\n    index: 0\n"
+      "    input_size: 10\n    output_size: 2\n"
+      "  - group: main\n    index: 0\n"
+      "    input_size: 90\n    output_size: 8\n"))
+    (let ((package (rbx-package-create
+                   :root (file-name-as-directory root)
+                   :build-dir "build")))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'testset)
+        (rbx-refresh)
+        (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+          (should (string-match-p "Testset statistics.*2 testcases" text))
+          (should (string-match-p "samples.*in 10 B.*out 2 B" text))
+          (should (string-match-p "main.*in 90 B.*out 8 B" text)))))))
+
+(ert-deftest rbx-insert-testset-statistics-renders-bars-and-totals ()
+  (let* ((entry-a (rbx-testcase-create :group "samples" :index 0))
+         (entry-b (rbx-testcase-create :group "main" :index 0))
+         (test-a (rbx-testset-test-create :group "samples" :index 0
+                                          :input-size 10 :output-size 2))
+         (test-b (rbx-testset-test-create :group "main" :index 0
+                                          :input-size 90 :output-size 8))
+         (testset (rbx-testset-create
+                  :groups (list (rbx-testset-group-create :name "samples")
+                               (rbx-testset-group-create :name "main"))
+                  :entries (list entry-a entry-b)
+                  :tests (list test-a test-b))))
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (magit-insert-section (rbx-root-section nil)
+          (rbx--insert-testset-statistics testset)))
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "Testset statistics · 2 testcases · 110 B"
+                               text))
+        (should (string-match-p "samples.*in 10 B.*out 2 B" text))
+        (should (string-match-p "main.*in 90 B.*out 8 B" text))))))
+
+(ert-deftest rbx-insert-testset-statistics-omits-section-without-testcases ()
+  (with-temp-buffer
+    (rbx-view-mode)
+    (let ((inhibit-read-only t))
+      (magit-insert-section (rbx-root-section nil)
+        (rbx--insert-testset-statistics (rbx-testset-create))))
+    (should (string-empty-p (buffer-substring-no-properties
+                            (point-min) (point-max))))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

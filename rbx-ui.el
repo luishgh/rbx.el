@@ -229,6 +229,7 @@ adjusted by the user remains intact."
 (defclass rbx-testset-group-section (magit-section) ())
 (defclass rbx-testset-testcase-section (magit-section) ())
 (defclass rbx-coverage-section (magit-section) ())
+(defclass rbx-statistics-section (magit-section) ())
 (defclass rbx-contest-section (magit-section) ())
 (defclass rbx-contest-variant-section (magit-section) ())
 (defclass rbx-contest-problem-section (magit-section) ())
@@ -846,6 +847,54 @@ when there is no generator script.  Returns the buffer now visiting it."
                      (if (rbx-variable-bounds-min-hit (cdr item)) "✓" "·")
                      (if (rbx-variable-bounds-max-hit (cdr item)) "✓" "·")))))))))
 
+(defconst rbx--statistics-bar-width 20
+  "Column width of the bar drawn in the testset statistics section.")
+
+(defun rbx--statistics-bar (value maximum)
+  "Return a proportional bar for VALUE out of MAXIMUM."
+  (let ((filled (if (> maximum 0)
+                   (round (* rbx--statistics-bar-width (/ (float value) maximum)))
+                 0)))
+    (rbx--fontify
+     (concat (make-string filled ?█)
+            (make-string (- rbx--statistics-bar-width filled) ?·))
+     'rbx-hue-blue)))
+
+(defun rbx--insert-testset-statistics (testset)
+  "Insert aggregate size and count statistics for TESTSET."
+  (when-let ((stats (rbx-testset-statistics testset)))
+    (let* ((total-count
+           (apply #'+ (mapcar #'rbx-testset-group-stats-count stats)))
+          (total-input
+           (apply #'+ (mapcar #'rbx-testset-group-stats-input-size stats)))
+          (total-output
+           (apply #'+ (mapcar #'rbx-testset-group-stats-output-size stats)))
+          (largest
+           (apply #'max 1 (mapcar #'rbx-testset-group-stats-input-size stats))))
+      (magit-insert-section (rbx-statistics-section nil t)
+        (magit-insert-heading
+         (format "Testset statistics · %d testcase%s · %s\n"
+                total-count (if (= total-count 1) "" "s")
+                (rbx--format-size (+ total-input total-output))))
+        (dolist (group-stats stats)
+          (insert
+           (format "  %-12s %s  %s\n"
+                  (rbx-testset-group-stats-group group-stats)
+                  (rbx--statistics-bar
+                   (rbx-testset-group-stats-input-size group-stats) largest)
+                  (rbx--meta
+                   (format "%d testcase%s"
+                          (rbx-testset-group-stats-count group-stats)
+                          (if (= (rbx-testset-group-stats-count group-stats) 1)
+                              "" "s"))
+                   (format "in %s"
+                          (rbx--format-size
+                           (rbx-testset-group-stats-input-size group-stats)))
+                   (format "out %s"
+                          (rbx--format-size
+                           (rbx-testset-group-stats-output-size
+                            group-stats)))))))))))
+
 (defun rbx--insert-testset-view (package)
   "Insert PACKAGE's testset view at point."
   (if-let ((testset (rbx-load-testset package)))
@@ -867,7 +916,8 @@ when there is no generator script.  Returns the buffer now visiting it."
                        (if (= (length testcases) 1) "" "s")))
               (dolist (testcase testcases)
                 (rbx--insert-testset-testcase package testcase)))))
-        (rbx--insert-coverage testset))
+        (rbx--insert-coverage testset)
+        (rbx--insert-testset-statistics testset))
     (magit-insert-section
         (rbx-root-section (list :kind 'root :package package))
       (magit-insert-heading "Tests")

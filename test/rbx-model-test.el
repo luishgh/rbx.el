@@ -319,5 +319,33 @@
                        :build-dir "build")))
           (should-not (rbx-package-contest-membership package)))))))
 
+(ert-deftest rbx-testset-statistics-aggregates-by-group-in-order ()
+  (let* ((entry-a1 (rbx-testcase-create :group "samples" :index 0))
+         (entry-a2 (rbx-testcase-create :group "samples" :index 1))
+         (entry-b1 (rbx-testcase-create :group "main" :index 0))
+         (test-a1 (rbx-testset-test-create :group "samples" :index 0
+                                           :input-size 10 :output-size 2))
+         (test-a2 (rbx-testset-test-create :group "samples" :index 1
+                                           :input-size 20 :output-size 4))
+         (testset (rbx-testset-create
+                  :groups (list (rbx-testset-group-create :name "samples")
+                               (rbx-testset-group-create :name "main")
+                               (rbx-testset-group-create :name "empty"))
+                  :entries (list entry-a1 entry-a2 entry-b1)
+                  :tests (list test-a1 test-a2)))
+         (stats (rbx-testset-statistics testset)))
+    (should (equal (mapcar #'rbx-testset-group-stats-group stats)
+                  '("samples" "main")))
+    (let ((samples (car stats)) (main (cadr stats)))
+      (should (= (rbx-testset-group-stats-count samples) 2))
+      (should (= (rbx-testset-group-stats-input-size samples) 30))
+      (should (= (rbx-testset-group-stats-output-size samples) 6))
+      (should (= (rbx-testset-group-stats-count main) 1))
+      (should (= (rbx-testset-group-stats-input-size main) 0))
+      (should (= (rbx-testset-group-stats-output-size main) 0)))))
+
+(ert-deftest rbx-testset-statistics-nil-for-a-testset-without-entries ()
+  (should-not (rbx-testset-statistics (rbx-testset-create))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here
