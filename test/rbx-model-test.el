@@ -179,5 +179,145 @@
     (should-not (rbx-variable-bounds-max-hit
                  (cdr (assoc "n" (rbx-group-bounds-bounds bounds)))))))
 
+(ert-deftest rbx-parse-contest-problem-reads-declared-fields ()
+  (let ((problem (rbx--parse-contest-problem
+                  '(("short_name" . "A")
+                    ("aliases" . ("alpha"))
+                    ("path" . "problems/a")
+                    ("color" . "#ff0000")
+                    ("colorName" . "Red")))))
+    (should (equal (rbx-contest-problem-short-name problem) "A"))
+    (should (equal (rbx-contest-problem-aliases problem) '("alpha")))
+    (should (equal (rbx-contest-problem-path problem) "problems/a"))
+    (should (equal (rbx-contest-problem-color problem) "#ff0000"))
+    (should (equal (rbx-contest-problem-color-name problem) "Red"))))
+
+(ert-deftest rbx-parse-contest-problem-requires-short-name ()
+  (should-not (rbx--parse-contest-problem '(("path" . "problems/a")))))
+
+(ert-deftest rbx-contest-problem-resolved-path-defaults-to-short-name ()
+  (let ((problem (rbx-contest-problem-create :short-name "B")))
+    (should (equal (rbx-contest-problem-resolved-path problem "/contest/")
+                   (expand-file-name "B" "/contest/")))))
+
+(ert-deftest rbx-contest-problem-resolved-path-honors-declared-path ()
+  (let ((problem (rbx-contest-problem-create :short-name "B" :path "prob/b")))
+    (should (equal (rbx-contest-problem-resolved-path problem "/contest/")
+                   (expand-file-name "prob/b" "/contest/")))))
+
+(ert-deftest rbx-parse-contest-reads-problems-and-dispatcher-flag ()
+  (let ((contest (rbx-parse-contest
+                  '(("name" . "Finals")
+                    ("use_variants" . t)
+                    ("problems" .
+                     ((("short_name" . "A")) (("short_name" . "B"))))))))
+    (should (equal (rbx-contest-name contest) "Finals"))
+    (should (rbx-contest-use-variants contest))
+    (should (equal (mapcar #'rbx-contest-problem-short-name
+                           (rbx-contest-problems contest))
+                   '("A" "B")))))
+
+(ert-deftest rbx-load-contest-tags-variant-id-and-source-path ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "contest.div1.rbx.yml" "ignored\n")))
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (_path) '(("name" . "Division 1")))))
+        (let ((contest (rbx-load-contest path "div1")))
+          (should (equal (rbx-contest-name contest) "Division 1"))
+          (should (equal (rbx-contest-variant-id contest) "div1"))
+          (should (equal (rbx-contest-source-path contest) path)))))))
+
+(ert-deftest rbx-load-contest-variants-omits-dispatcher-sentinel ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "ignored\n")
+    (rbx-test-write root "contest.div1.rbx.yml" "ignored\n")
+    (rbx-reset-artifact-cache)
+    (cl-letf (((symbol-function 'rbx-read-yaml)
+               (lambda (path)
+                 (if (string-match-p "contest\\.rbx\\.yml\\'" path)
+                     '(("use_variants" . t))
+                   '(("name" . "Division 1")
+                     ("problems" . ((("short_name" . "A")))))))))
+      (let ((contests (rbx-load-contest-variants root)))
+        (should (= (length contests) 1))
+        (should (equal (rbx-contest-variant-id (car contests)) "div1"))))))
+
+(ert-deftest rbx-load-contest-variants-includes-canonical-when-not-dispatching ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "ignored\n")
+    (rbx-reset-artifact-cache)
+    (cl-letf (((symbol-function 'rbx-read-yaml)
+               (lambda (_path)
+                 '(("name" . "Finals") ("problems" . ((("short_name" . "A"))))))))
+      (let ((contests (rbx-load-contest-variants root)))
+        (should (= (length contests) 1))
+        (should (null (rbx-contest-variant-id (car contests))))))))
+
+(ert-deftest rbx-package-contest-membership-matches-default-path ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "ignored\n")
+    (let ((package-root (expand-file-name "A" root)))
+      (make-directory package-root t)
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (_path)
+                   '(("name" . "Finals")
+                     ("problems" .
+                      ((("short_name" . "A") ("color" . "red"))
+                       (("short_name" . "B"))))))))
+        (let* ((package (rbx-package-create
+                         :root (file-name-as-directory package-root)
+                         :build-dir "build"))
+               (membership (rbx-package-contest-membership package)))
+          (should membership)
+          (should (equal (rbx-contest-problem-short-name
+                          (rbx-contest-membership-problem membership))
+                         "A"))
+          (should (equal (rbx-contest-name (rbx-contest-membership-contest
+                                            membership))
+                         "Finals"))
+          (should (equal (rbx-contest-membership-root membership)
+                         (file-name-as-directory root))))))))
+
+(ert-deftest rbx-package-contest-membership-honors-declared-path ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "ignored\n")
+    (let ((package-root (expand-file-name "solutions/first" root)))
+      (make-directory package-root t)
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (_path)
+                   '(("problems" .
+                      ((("short_name" . "A") ("path" . "solutions/first"))))))))
+        (let* ((package (rbx-package-create
+                         :root (file-name-as-directory package-root)
+                         :build-dir "build"))
+               (membership (rbx-package-contest-membership package)))
+          (should membership)
+          (should (equal (rbx-contest-problem-short-name
+                          (rbx-contest-membership-problem membership))
+                         "A")))))))
+
+(ert-deftest rbx-package-contest-membership-nil-outside-a-contest ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (should-not (rbx-package-contest-membership package)))))
+
+(ert-deftest rbx-package-contest-membership-nil-when-unlisted ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "ignored\n")
+    (let ((package-root (expand-file-name "C" root)))
+      (make-directory package-root t)
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (_path)
+                   '(("problems" . ((("short_name" . "A"))))))))
+        (let ((package (rbx-package-create
+                       :root (file-name-as-directory package-root)
+                       :build-dir "build")))
+          (should-not (rbx-package-contest-membership package)))))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here

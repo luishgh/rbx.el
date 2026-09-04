@@ -24,7 +24,14 @@ the package and renders the artifacts that land on disk.
 - Native unified diffs of solution output against the expected answer.
 - Sticky output/stderr/log selection and persistent testcase windows: after the
   first split, your window arrangement is reused.
-- Multi-problem discovery and selection for contest projects.
+- Multi-problem discovery and selection for contest projects, naming problems
+  by their declared contest letter and color, disambiguating divisions that
+  share a letter, and a dedicated contest view listing every declared
+  variant side by side (rbx never records which `-C` variant a terminal
+  invocation used).
+- Best-effort following of the contest problem most recently touched by
+  `rbx contest each run`, inferred from run-artifact activity since rbx
+  itself keeps no on-disk record of which problem is currently running.
 - Support for custom `buildDir` values from local rbx presets.
 - Version-skew-tolerant artifact readers using `yq` and Emacs's native JSON
   parser, with correct generated artifact stems.
@@ -105,6 +112,13 @@ On a testcase, `RET` opens the input and a second pane. For run testcases that
 pane contains an output-versus-answer diff; for built tests it contains the
 expected answer. The Transient can switch the second pane between output,
 stderr, and the run log. The choice stays active while you inspect other tests.
+
+In a contest workspace, `M-x rbx-contest-view` (or `c` in the Transient) opens
+a block per declared variant, each listing its problems by letter and color;
+`RET` on a problem opens its run view. From a run view, `f` toggles following
+whichever contest member most recently produced run artifacts, approximating
+`rbx contest each run`'s progress since rbx keeps no on-disk record of which
+problem is currently running.
 
 Enable `rbx-mode` in solution buffers to bind `C-c r` and publish findings from
 the most recent compile phase through Flymake. Diagnostics refresh when the rbx

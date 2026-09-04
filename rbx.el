@@ -38,13 +38,6 @@
 
 (defvar rbx-mode)
 
-(defun rbx--same-file-p (left right)
-  "Return non-nil when LEFT and RIGHT name the same local file."
-  (and left right
-       (if (and (file-exists-p left) (file-exists-p right))
-           (file-equal-p left right)
-         (equal (expand-file-name left) (expand-file-name right)))))
-
 (defun rbx--diagnostic-region (line)
   "Return a Flymake region for LINE in the current buffer."
   (or (flymake-diag-region (current-buffer) line)

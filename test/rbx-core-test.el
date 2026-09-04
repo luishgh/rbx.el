@@ -101,6 +101,39 @@
                      (expand-file-name
                       ".rbx/runs/2/main/1-gen-000.eval" root))))))
 
+(ert-deftest rbx-find-contest-root-locates-nearest-manifest ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "name: Finals\n")
+    (make-directory (expand-file-name "A/sols" root) t)
+    (should (equal (rbx-find-contest-root (expand-file-name "A/sols" root))
+                   (file-name-as-directory root)))))
+
+(ert-deftest rbx-find-contest-root-returns-nil-outside-a-contest ()
+  (rbx-test-with-directory root
+    (should-not (rbx-find-contest-root root))))
+
+(ert-deftest rbx-discover-contest-variants-finds-canonical-only ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "name: Finals\n")
+    (should (equal (mapcar #'car (rbx-discover-contest-variants root))
+                   '(nil)))))
+
+(ert-deftest rbx-discover-contest-variants-finds-siblings ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.rbx.yml" "use_variants: true\n")
+    (rbx-test-write root "contest.div1.rbx.yml" "name: Division 1\n")
+    (rbx-test-write root "contest.div2.rbx.yml" "name: Division 2\n")
+    (let ((variants (rbx-discover-contest-variants root)))
+      (should (assoc nil variants))
+      (should (equal (sort (delq nil (mapcar #'car variants)) #'string-lessp)
+                     '("div1" "div2"))))))
+
+(ert-deftest rbx-discover-contest-variants-without-canonical-file ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "contest.div1.rbx.yml" "name: Division 1\n")
+    (should (equal (mapcar #'car (rbx-discover-contest-variants root))
+                   '("div1")))))
+
 (ert-deftest rbx-watch-package-debounces-relevant-artifacts ()
   (rbx-test-with-directory root
     (let ((package (rbx-package-create
@@ -127,6 +160,34 @@
           (sleep-for 0.01)
           (should (= refreshes 1))
           (rbx-stop-watcher watcher))))))
+
+(ert-deftest rbx-watch-contest-invokes-callback-with-the-changed-package ()
+  (rbx-test-with-directory root
+    (let* ((root-a (file-name-as-directory (expand-file-name "A" root)))
+           (root-b (file-name-as-directory (expand-file-name "B" root)))
+           (package-a (rbx-package-create :root root-a :build-dir "build"))
+           (package-b (rbx-package-create :root root-b :build-dir "build"))
+           notifications
+           notified
+           watchers)
+      (make-directory root-a t)
+      (make-directory root-b t)
+      (cl-letf (((symbol-function 'file-notify-add-watch)
+                 (lambda (directory _flags callback)
+                   (push (cons directory callback) notifications)
+                   (length notifications)))
+                ((symbol-function 'file-notify-rm-watch) #'ignore))
+        (let ((rbx-refresh-delay 0))
+          (setq watchers
+                (rbx-watch-contest
+                 (list package-a package-b)
+                 (lambda (package) (push package notified))))
+          (should (= (length notifications) 2))
+          (let ((for-b (cdr (assoc root-b notifications))))
+            (funcall for-b '(1 changed "/tmp/B/.rbx/runs/report.yml")))
+          (sleep-for 0.01)
+          (should (equal notified (list package-b)))
+          (mapc #'rbx-stop-watcher watchers))))))
 
 (provide 'rbx-core-test)
 ;;; rbx-core-test.el ends here

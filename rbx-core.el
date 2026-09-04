@@ -40,6 +40,17 @@
 (defconst rbx-problem-manifest "problem.rbx.yml"
   "Name of an rbx problem manifest.")
 
+(defconst rbx-contest-manifest "contest.rbx.yml"
+  "Name of an rbx contest manifest.")
+
+(defconst rbx--contest-variant-regexp
+  "\\`contest\\.\\(.+\\)\\.rbx\\.yml\\'"
+  "Regexp matching an rbx contest variant manifest filename.
+
+The captured group is the variant id, e.g. \"div1\" for
+\"contest.div1.rbx.yml\".  It never matches the canonical
+`rbx-contest-manifest' itself.")
+
 (defconst rbx-cache-directory ".rbx"
   "Name of the cache directory managed by rbx.")
 
@@ -257,6 +268,39 @@ DIRECTORY defaults to the current buffer's file directory, then
          (root (locate-dominating-file start rbx-problem-manifest)))
     (when root (rbx--make-package root))))
 
+(defun rbx-find-contest-root (&optional directory)
+  "Return the nearest rbx contest root containing DIRECTORY.
+
+DIRECTORY defaults to the current buffer's file directory, then
+`default-directory'."
+  (let* ((start (or directory
+                    (and buffer-file-name (file-name-directory buffer-file-name))
+                    default-directory))
+         (root (locate-dominating-file start rbx-contest-manifest)))
+    (and root (file-name-as-directory (expand-file-name root)))))
+
+(defun rbx-discover-contest-variants (contest-root)
+  "Return CONTEST-ROOT's manifests as an alist of variant id to path.
+
+The canonical `rbx-contest-manifest', when present, is keyed by nil.
+Sibling `contest.<id>.rbx.yml' variant manifests are keyed by their <id>,
+mirroring rbx's own `contest.*.rbx.yml' variant discovery."
+  (let* ((root (file-name-as-directory (expand-file-name contest-root)))
+         (canonical (expand-file-name rbx-contest-manifest root))
+         (variants
+          (when (file-directory-p root)
+            (delq nil
+                  (mapcar
+                   (lambda (name)
+                     (when (string-match rbx--contest-variant-regexp name)
+                       (cons (match-string 1 name)
+                             (expand-file-name name root))))
+                   (directory-files root nil
+                                    directory-files-no-dot-files-regexp t))))))
+    (if (file-exists-p canonical)
+        (cons (cons nil canonical) variants)
+      variants)))
+
 (defun rbx-cache-path (package)
   "Return PACKAGE's cache directory."
   (expand-file-name rbx-cache-directory (rbx-package-root package)))
@@ -302,6 +346,13 @@ testcase, and EXTENSION includes its leading dot."
 EXTENSION includes its leading dot."
   (expand-file-name (format "%s/%s%s" group stem extension)
                     (rbx-tests-path package)))
+
+(defun rbx--same-file-p (left right)
+  "Return non-nil when LEFT and RIGHT name the same local file."
+  (and left right
+       (if (and (file-exists-p left) (file-exists-p right))
+           (file-equal-p left right)
+         (equal (expand-file-name left) (expand-file-name right)))))
 
 (defun rbx-package-file-path (package recorded-path)
   "Resolve RECORDED-PATH relative to PACKAGE.
@@ -368,6 +419,16 @@ The returned watcher must eventually be passed to `rbx-stop-watcher'."
                      (file-notify-error nil)))
                  (rbx--watchable-directories package))))
     watcher))
+
+(defun rbx-watch-contest (packages callback)
+  "Watch PACKAGES' artifacts and invoke CALLBACK with whichever changed.
+
+Returns a list of watchers that must eventually each be passed to
+`rbx-stop-watcher'."
+  (mapcar
+   (lambda (package)
+     (rbx-watch-package package (lambda () (funcall callback package))))
+   packages))
 
 (defun rbx-stop-watcher (watcher)
   "Stop WATCHER and cancel its pending refresh."

@@ -7,6 +7,15 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Contest support: discovery and tolerant parsing of `contest.rbx.yml` and
+  its `contest.<id>.rbx.yml` variant siblings, problem labeling by declared
+  contest letter and color, division disambiguation when two contests share
+  a letter, a dedicated contest view rendering one block per variant, and
+  best-effort following of the contest problem most recently touched by
+  `rbx contest each run`.
+
 ### Changed
 
 - Rename the project from `rbx-for-emacs` to `rbx.el`.

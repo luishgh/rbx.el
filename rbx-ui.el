@@ -229,6 +229,9 @@ adjusted by the user remains intact."
 (defclass rbx-testset-group-section (magit-section) ())
 (defclass rbx-testset-testcase-section (magit-section) ())
 (defclass rbx-coverage-section (magit-section) ())
+(defclass rbx-contest-section (magit-section) ())
+(defclass rbx-contest-variant-section (magit-section) ())
+(defclass rbx-contest-problem-section (magit-section) ())
 
 (defvar-keymap rbx-view-mode-map
   :doc "Keymap for `rbx-view-mode'."
@@ -240,6 +243,15 @@ adjusted by the user remains intact."
 
 (defvar-local rbx--package nil
   "Package displayed in the current rbx view.")
+
+(defvar-local rbx--contest-root nil
+  "Contest root displayed in the current rbx contest view.")
+
+(defvar-local rbx--contest-watchers nil
+  "Watchers used to follow the contest's active problem, when following.
+
+Non-nil exactly when the current run view is following, per
+`rbx-toggle-contest-follow'.")
 
 (defvar-local rbx--view nil
   "Kind of the current view, either `run' or `testset'.")
@@ -264,7 +276,8 @@ adjusted by the user remains intact."
   :group 'rbx
   (setq-local revert-buffer-function
               (lambda (&rest _ignored) (rbx-refresh)))
-  (add-hook 'kill-buffer-hook #'rbx--stop-buffer-watcher nil t))
+  (add-hook 'kill-buffer-hook #'rbx--stop-buffer-watcher nil t)
+  (add-hook 'kill-buffer-hook #'rbx--stop-contest-follow nil t))
 
 (defun rbx-outcome-short-name (outcome)
   "Return rbx's concise display name for actual OUTCOME."
@@ -613,8 +626,10 @@ adjusted by the user remains intact."
         (magit-insert-section
             (rbx-root-section (list :kind 'root :package package))
           (magit-insert-heading
-           (format "Run · %s%s\n"
-                   (abbreviate-file-name (rbx-package-root package))
+           (format "Run · %s%s%s\n"
+                   (rbx--package-heading-label
+                    package (abbreviate-file-name (rbx-package-root package)))
+                   (if rbx--contest-watchers " · following" "")
                    (if (rbx-skeleton-sanitized skeleton) " · sanitized" "")))
           (when (rbx-skeleton-only-accepted skeleton)
             (insert (propertize
@@ -627,7 +642,8 @@ adjusted by the user remains intact."
                                    (rbx-skeleton-compilation skeleton))))
     (magit-insert-section
         (rbx-root-section (list :kind 'root :package package))
-      (magit-insert-heading "Run")
+      (magit-insert-heading
+       (format "Run%s" (if rbx--contest-watchers " · following" "")))
       (insert (propertize
                "No run artifacts yet.  Run `rbx run` in your terminal.\n"
                'face 'shadow)))))
@@ -717,7 +733,8 @@ adjusted by the user remains intact."
           (rbx-root-section (list :kind 'root :package package))
         (magit-insert-heading
          (format "Tests · %s%s\n"
-                 (abbreviate-file-name (rbx-package-root package))
+                 (rbx--package-heading-label
+                  package (abbreviate-file-name (rbx-package-root package)))
                  (if-let ((task-type (rbx-testset-task-type testset)))
                      (format " · %s" task-type) "")))
         (dolist (group (rbx-testset-ordered-groups testset))
@@ -738,10 +755,49 @@ adjusted by the user remains intact."
                "No testset manifest yet.  Run `rbx build` in your terminal.\n"
                'face 'shadow)))))
 
+(defun rbx--insert-contest-problem (contest-root problem)
+  "Insert PROBLEM declared under CONTEST-ROOT."
+  (let* ((resolved (rbx-contest-problem-resolved-path problem contest-root))
+         (context (list :kind 'contest-problem :package-path resolved)))
+    (magit-insert-section (rbx-contest-problem-section context)
+      (magit-insert-heading
+       (format "  %s  %s\n"
+               (rbx--contest-label problem)
+               (file-name-nondirectory (directory-file-name resolved)))))))
+
+(defun rbx--insert-contest-variant (contest-root contest)
+  "Insert one variant block for CONTEST declared under CONTEST-ROOT."
+  (let ((context (list :kind 'contest-variant :contest contest)))
+    (magit-insert-section (rbx-contest-variant-section context t)
+      (magit-insert-heading
+       (format "%s\n" (or (rbx-contest-variant-id contest) "Canonical")))
+      (dolist (problem (rbx-contest-problems contest))
+        (rbx--insert-contest-problem contest-root problem)))))
+
+(defun rbx--insert-contest-view (contest-root)
+  "Insert the contest at CONTEST-ROOT, one block per declared variant.
+
+Every variant is shown side by side because rbx never records which `-C'
+selection a terminal invocation used."
+  (magit-insert-section
+      (rbx-contest-section (list :kind 'root :contest-root contest-root))
+    (magit-insert-heading
+     (format "Contest · %s\n" (abbreviate-file-name contest-root)))
+    (let ((contests (rbx-load-contest-variants contest-root)))
+      (if (null contests)
+          (insert (propertize
+                   "No contest.rbx.yml found here.\n" 'face 'shadow))
+        (dolist (contest contests)
+          (rbx--insert-contest-variant contest-root contest))))))
+
 (defun rbx-refresh ()
   "Refresh the current rbx artifact view."
   (interactive)
-  (unless (and (derived-mode-p 'rbx-view-mode) rbx--package rbx--view)
+  (unless (and (derived-mode-p 'rbx-view-mode)
+              rbx--view
+              (pcase rbx--view
+                ('contest rbx--contest-root)
+                (_ rbx--package)))
     (user-error "This is not an initialized rbx view"))
   (let ((inhibit-read-only t)
         (line (line-number-at-pos)))
@@ -749,6 +805,7 @@ adjusted by the user remains intact."
     (pcase rbx--view
       ('run (rbx--insert-run-view rbx--package))
       ('testset (rbx--insert-testset-view rbx--package))
+      ('contest (rbx--insert-contest-view rbx--contest-root))
       (_ (insert "Unknown rbx view.\n")))
     (goto-char (point-min))
     (forward-line (1- line))))
@@ -772,11 +829,145 @@ adjusted by the user remains intact."
                  (rbx--start-buffer-watcher)
                  (rbx-refresh))))))))
 
+(defun rbx--contest-follow-candidates ()
+  "Return the run view's contest member packages, or nil outside a contest."
+  (when-let* ((membership (and rbx--package
+                              (rbx-package-contest-membership rbx--package)))
+             (root (rbx-contest-membership-root membership))
+             (contest (rbx-contest-membership-contest membership)))
+    (delq nil
+          (mapcar
+           (lambda (problem)
+             (rbx-find-package
+              (rbx-contest-problem-resolved-path problem root)))
+           (rbx-contest-problems contest)))))
+
+(defun rbx--most-recently-touched (packages)
+  "Return whichever of PACKAGES most recently produced run artifacts."
+  (car
+   (car
+    (sort
+     (delq nil
+          (mapcar
+           (lambda (package)
+             (when-let ((mtime (file-attribute-modification-time
+                                (file-attributes
+                                 (rbx-skeleton-path package)))))
+               (cons package mtime)))
+           packages))
+     (lambda (a b) (time-less-p (cdr b) (cdr a)))))))
+
+(defun rbx--stop-contest-follow ()
+  "Stop the current buffer's contest auto-follow watchers, if any."
+  (when rbx--contest-watchers
+    (mapc #'rbx-stop-watcher rbx--contest-watchers)
+    (setq rbx--contest-watchers nil)))
+
+(defun rbx--start-contest-follow (candidates)
+  "Start following whichever of CANDIDATES is most recently active."
+  (let ((buffer (current-buffer)))
+    (setq rbx--contest-watchers
+         (rbx-watch-contest
+          candidates
+          (lambda (_package)
+            (when (buffer-live-p buffer)
+              (with-current-buffer buffer
+                (when-let ((latest (rbx--most-recently-touched candidates)))
+                  (unless (equal latest rbx--package)
+                    (setq rbx--package latest)
+                    (rbx--start-buffer-watcher)))
+                (rbx-refresh))))))))
+
+(defun rbx-toggle-contest-follow ()
+  "Toggle following the contest's currently active problem in this view.
+
+Since `rbx contest each run' leaves no on-disk marker for which problem is
+running, this follows whichever contest member most recently produced run
+artifacts."
+  (interactive)
+  (unless (derived-mode-p 'rbx-view-mode)
+    (user-error "This is not an rbx view"))
+  (if rbx--contest-watchers
+      (progn (rbx--stop-contest-follow) (rbx-refresh))
+    (let ((candidates (rbx--contest-follow-candidates)))
+      (unless candidates
+        (user-error "The current package is not part of a contest"))
+      (rbx--start-contest-follow candidates)
+      (rbx-refresh))))
+
 (defun rbx--project-root ()
   "Return the current project root or `default-directory'."
   (if-let ((project (project-current nil)))
       (project-root project)
     default-directory))
+
+(defun rbx--contest-hex-color (problem)
+  "Return a normalized \"#rrggbb\" string for PROBLEM's declared color.
+
+Accepts the hex forms rbx itself accepts (`#abc' and `#abcdef') verbatim, and
+falls back to Emacs's own color resolution for X11 color names.  Returns nil
+when PROBLEM has no color or it cannot be resolved."
+  (when-let ((color (or (rbx-contest-problem-color problem)
+                        (rbx-contest-problem-color-name problem))))
+    (cond
+     ((string-match
+       "\\`#\\([0-9a-fA-F]\\)\\([0-9a-fA-F]\\)\\([0-9a-fA-F]\\)\\'" color)
+      (concat "#" (mapconcat (lambda (n) (let ((digit (match-string n color)))
+                                          (concat digit digit)))
+                             '(1 2 3) "")))
+     ((string-match-p "\\`#[0-9a-fA-F]\\{6\\}\\'" color) color)
+     (t (when-let ((values (ignore-errors (color-values color))))
+         (apply #'format "#%02x%02x%02x"
+                (mapcar (lambda (component) (ash component -8)) values)))))))
+
+(defun rbx--contest-label (problem)
+  "Return PROBLEM's short name, colored by its declared color when known."
+  (let ((short-name (rbx-contest-problem-short-name problem))
+        (hex (rbx--contest-hex-color problem)))
+    (if hex (rbx--fontify short-name (list :foreground hex)) short-name)))
+
+(defun rbx--contest-short-name-collides-p (memberships membership)
+  "Return non-nil when MEMBERSHIP's short name recurs under another contest.
+
+MEMBERSHIPS is the full list of `rbx-contest-membership' values (or nil)
+being displayed together, used to detect divisions that share a letter."
+  (and membership
+       (cl-some
+        (lambda (other)
+          (and other
+              (not (equal (rbx-contest-membership-root other)
+                          (rbx-contest-membership-root membership)))
+              (equal (rbx-contest-problem-short-name
+                     (rbx-contest-membership-problem other))
+                    (rbx-contest-problem-short-name
+                     (rbx-contest-membership-problem membership)))))
+        memberships)))
+
+(defun rbx--package-label (package root membership collides)
+  "Return PACKAGE's completion/display label.
+
+MEMBERSHIP is PACKAGE's `rbx-contest-membership', when any, and ROOT is the
+directory relative labels fall back to outside a contest.  When COLLIDES is
+non-nil, the owning contest's name is prefixed so that two divisions sharing
+a letter, e.g. both starting at \"A\", stay visually distinct."
+  (if membership
+      (let* ((problem (rbx-contest-membership-problem membership))
+             (contest-name (rbx-contest-name
+                           (rbx-contest-membership-contest membership)))
+             (qualifier (and collides (not (string-empty-p contest-name))
+                            (concat contest-name " · "))))
+        (concat (or qualifier "") (rbx--contest-label problem) "  "
+               (file-name-nondirectory
+                (directory-file-name (rbx-package-root package)))))
+    (file-relative-name (rbx-package-root package) root)))
+
+(defun rbx--package-heading-label (package fallback)
+  "Return PACKAGE's contest letter/name label, or FALLBACK outside a contest."
+  (if-let ((membership (rbx-package-contest-membership package)))
+      (concat (rbx--contest-label (rbx-contest-membership-problem membership))
+             " · " (file-name-nondirectory
+                    (directory-file-name (rbx-package-root package))))
+    fallback))
 
 (defun rbx--select-package (&optional always-prompt)
   "Choose an rbx package, prompting when ALWAYS-PROMPT or ambiguous."
@@ -789,20 +980,25 @@ adjusted by the user remains intact."
       (`(,only) only)
       (_
        (let* ((root (rbx--project-root))
+              (memberships (mapcar #'rbx-package-contest-membership packages))
               (choices
-               (mapcar (lambda (package)
-                         (cons (file-relative-name
-                                (rbx-package-root package) root)
-                               package))
-                       packages)))
+               (cl-mapcar
+                (lambda (package membership)
+                  (cons (rbx--package-label
+                        package root membership
+                        (rbx--contest-short-name-collides-p
+                         memberships membership))
+                       package))
+                packages memberships)))
          (cdr (assoc (completing-read "rbx problem: " choices nil t)
                      choices)))))))
 
 (defun rbx--open-view (view &optional package)
   "Open VIEW for PACKAGE."
   (let* ((selected (or package (rbx--select-package)))
-         (label (file-name-nondirectory
-                 (directory-file-name (rbx-package-root selected))))
+         (label (rbx--package-heading-label
+                 selected (file-name-nondirectory
+                          (directory-file-name (rbx-package-root selected)))))
          (buffer (get-buffer-create
                   (format "*rbx %s: %s*" view label))))
     (let ((window
@@ -830,11 +1026,40 @@ adjusted by the user remains intact."
   (interactive)
   (rbx--open-view 'testset package))
 
+;;;###autoload
+(defun rbx-contest-view (&optional contest-root)
+  "Open the contest view for CONTEST-ROOT.
+
+CONTEST-ROOT defaults to the contest owning the package shown in the
+current view, or the nearest contest to `default-directory'."
+  (interactive)
+  (let* ((root (or contest-root
+                   (rbx-find-contest-root
+                    (if rbx--package
+                        (rbx-package-root rbx--package)
+                      default-directory)))))
+    (unless root (user-error "No contest.rbx.yml found"))
+    (let ((buffer (get-buffer-create
+                   (format "*rbx contest: %s*"
+                          (file-name-nondirectory
+                           (directory-file-name root))))))
+      (let ((window (display-buffer-in-side-window
+                    buffer '((side . left) (slot . -1) (window-width . 0.32)))))
+        (select-window window))
+      (unless (derived-mode-p 'rbx-view-mode)
+        (rbx-view-mode))
+      (setq rbx--contest-root root
+           rbx--view 'contest
+           default-directory root)
+      (rbx-refresh)
+      buffer)))
+
 (defun rbx-select-package ()
   "Select another problem for the current rbx view."
   (interactive)
   (unless (derived-mode-p 'rbx-view-mode)
     (user-error "This is not an rbx view"))
+  (rbx--stop-contest-follow)
   (setq rbx--package (rbx--select-package t))
   (setq default-directory (rbx-package-root rbx--package))
   (rbx--start-buffer-watcher)
@@ -1036,6 +1261,16 @@ adjusted by the user remains intact."
           (browse-url-of-file absolute)
         (find-file-other-window absolute)))))
 
+(defun rbx-open-contest-problem (&optional context)
+  "Open the run view for the contest problem represented by CONTEXT."
+  (interactive)
+  (let* ((value (or context (rbx--context)))
+         (path (plist-get value :package-path))
+         (package (and path (rbx-find-package path))))
+    (unless package
+      (user-error "No problem.rbx.yml found for this entry"))
+    (rbx-run-view package)))
+
 (defun rbx-view-visit ()
   "Visit or toggle the rbx section at point."
   (interactive)
@@ -1046,6 +1281,7 @@ adjusted by the user remains intact."
       ('solution (rbx-open-solution))
       ('compilation (rbx-open-compilation-log))
       ('warning (rbx-open-warning))
+      ('contest-problem (rbx-open-contest-problem context))
       (_ (if section (magit-section-toggle section)
            (user-error "No rbx item at point"))))))
 
@@ -1055,7 +1291,10 @@ adjusted by the user remains intact."
   [["Views"
     ("r" "Run" rbx-run-view)
     ("t" "Tests" rbx-testset-view)
+    ("c" "Contest" rbx-contest-view)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
+    ("f" "Follow running problem" rbx-toggle-contest-follow
+     :if-mode rbx-view-mode)
     ("g" "Refresh" rbx-refresh :if-mode rbx-view-mode)]
    ["At point"
     ("RET" "Open" rbx-view-visit :if-mode rbx-view-mode)

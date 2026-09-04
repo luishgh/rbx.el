@@ -101,6 +101,28 @@
   "A testset entry joined with its build-time metadata."
   entry stem test)
 
+(cl-defstruct (rbx-contest-problem
+               (:constructor rbx-contest-problem-create))
+  "One declared problem entry in a contest manifest."
+  short-name aliases path color color-name)
+
+(cl-defstruct (rbx-contest (:constructor rbx-contest-create))
+  "A parsed rbx contest manifest.
+
+VARIANT-ID and SOURCE-PATH are stamped by `rbx-load-contest' rather than
+parsed from the manifest itself; the canonical manifest has a nil
+VARIANT-ID."
+  name use-variants problems variant-id source-path)
+
+(cl-defstruct (rbx-contest-membership
+               (:constructor rbx-contest-membership-create))
+  "A package's position within a contest.
+
+ROOT is the contest root, CONTEST the specific variant it was found in (the
+canonical variant when there is no dispatcher), and PROBLEM the matching
+declared entry."
+  root contest problem)
+
 (defconst rbx--model-missing (make-symbol "rbx-missing")
   "Sentinel used to distinguish a missing field from YAML false or null.")
 
@@ -447,6 +469,36 @@ verdict is not."
                (mapcar #'rbx--parse-group-bounds
                        (rbx--wire-sequence validation-value))))))))
 
+(defun rbx--parse-contest-problem (raw)
+  "Parse RAW as a contest problem entry, or return nil."
+  (when-let ((short-name (rbx--model-string raw "short_name")))
+    (rbx-contest-problem-create
+     :short-name short-name
+     :aliases (rbx--model-strings raw "aliases")
+     :path (rbx--model-string raw "path")
+     :color (rbx--model-string raw "color")
+     :color-name (rbx--model-string raw "colorName"))))
+
+(defun rbx-parse-contest (raw)
+  "Parse RAW as a contest manifest, or return nil."
+  (when (rbx--wire-mapping-p raw)
+    (rbx-contest-create
+     :name (or (rbx--model-string raw "name") "")
+     :use-variants (rbx--model-boolean raw '("use_variants") nil)
+     :problems (delq nil
+                     (mapcar #'rbx--parse-contest-problem
+                             (rbx--wire-sequence
+                              (rbx--model-field raw "problems")))))))
+
+(defun rbx-contest-problem-resolved-path (problem contest-root)
+  "Return PROBLEM's absolute directory below CONTEST-ROOT.
+
+Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
+  (expand-file-name
+   (or (rbx-contest-problem-path problem)
+       (rbx-contest-problem-short-name problem))
+   contest-root))
+
 (defun rbx-testset-testcases (testset)
   "Join TESTSET entries to their build-time metadata."
   (let ((by-key (make-hash-table :test #'equal)))
@@ -505,6 +557,47 @@ verdict is not."
 (defun rbx-load-testset (package)
   "Read PACKAGE's current testset manifest."
   (rbx--load-artifact (rbx-testset-path package) #'rbx-parse-testset))
+
+(defun rbx-load-contest (path &optional variant-id)
+  "Read the contest manifest at PATH, tagging it with VARIANT-ID."
+  (when-let ((contest (rbx--load-artifact path #'rbx-parse-contest)))
+    (setf (rbx-contest-variant-id contest) variant-id)
+    (setf (rbx-contest-source-path contest) (expand-file-name path))
+    contest))
+
+(defun rbx-package-contest-membership (package)
+  "Return PACKAGE's `rbx-contest-membership', or nil outside a contest.
+
+When PACKAGE's directory is listed by more than one contest variant, the
+canonical variant wins; otherwise the first variant that lists it does."
+  (when-let ((root (rbx-find-contest-root (rbx-package-root package))))
+    (catch 'rbx-contest-membership
+      (dolist (contest (rbx-load-contest-variants root))
+        (dolist (problem (rbx-contest-problems contest))
+          (when (rbx--same-file-p
+                 (rbx-contest-problem-resolved-path problem root)
+                 (rbx-package-root package))
+            (throw 'rbx-contest-membership
+                   (rbx-contest-membership-create
+                    :root root :contest contest :problem problem)))))
+      nil)))
+
+(defun rbx-load-contest-variants (contest-root)
+  "Return CONTEST-ROOT's variants as a list of loaded `rbx-contest' structs.
+
+The canonical manifest is omitted when it declares itself a `use_variants'
+dispatcher sentinel, since it has no problems of its own."
+  (let* ((discovered (rbx-discover-contest-variants contest-root))
+         (canonical-path (cdr (assoc nil discovered)))
+         (canonical (and canonical-path (rbx-load-contest canonical-path))))
+    (delq nil
+          (mapcar
+           (lambda (entry)
+             (if (null (car entry))
+                 (unless (and canonical (rbx-contest-use-variants canonical))
+                   canonical)
+               (rbx-load-contest (cdr entry) (car entry))))
+           discovered))))
 
 (provide 'rbx-model)
 ;;; rbx-model.el ends here

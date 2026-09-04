@@ -160,5 +160,268 @@
           (should (string-match-p "000.*gen 5 3.*validated by validator\\.cpp"
                                   text)))))))
 
+(ert-deftest rbx-contest-hex-color-normalizes-short-hex ()
+  (should (equal (rbx--contest-hex-color
+                  (rbx-contest-problem-create :short-name "A" :color "#abc"))
+                 "#aabbcc")))
+
+(ert-deftest rbx-contest-hex-color-keeps-long-hex-verbatim ()
+  (should (equal (rbx--contest-hex-color
+                  (rbx-contest-problem-create :short-name "A" :color "#123456"))
+                 "#123456")))
+
+(ert-deftest rbx-contest-hex-color-prefers-declared-color-over-colorname ()
+  (should (equal (rbx--contest-hex-color
+                  (rbx-contest-problem-create
+                   :short-name "A" :color "#111111" :color-name "Ignored"))
+                 "#111111")))
+
+(ert-deftest rbx-contest-hex-color-nil-without-a-color ()
+  (should-not
+   (rbx--contest-hex-color (rbx-contest-problem-create :short-name "A"))))
+
+(ert-deftest rbx-contest-label-colors-short-name-when-known ()
+  (let* ((problem (rbx-contest-problem-create :short-name "A"
+                                              :color "#112233"))
+         (label (rbx--contest-label problem)))
+    (should (equal (substring-no-properties label) "A"))
+    (should (equal (get-text-property 0 'font-lock-face label)
+                   '(:foreground "#112233")))))
+
+(ert-deftest rbx-contest-label-plain-without-a-color ()
+  (let* ((problem (rbx-contest-problem-create :short-name "B"))
+         (label (rbx--contest-label problem)))
+    (should (equal label "B"))
+    (should-not (get-text-property 0 'font-lock-face label))))
+
+(ert-deftest rbx-contest-short-name-collides-p-detects-cross-contest-letters ()
+  (let ((a (rbx-contest-membership-create
+            :root "/contests/div1/"
+            :contest (rbx-contest-create :name "Div 1")
+            :problem (rbx-contest-problem-create :short-name "A")))
+        (b (rbx-contest-membership-create
+            :root "/contests/div2/"
+            :contest (rbx-contest-create :name "Div 2")
+            :problem (rbx-contest-problem-create :short-name "A"))))
+    (should (rbx--contest-short-name-collides-p (list a b) a))
+    (should-not (rbx--contest-short-name-collides-p (list a) a))
+    (should-not (rbx--contest-short-name-collides-p (list a b) nil))))
+
+(ert-deftest rbx-package-label-uses-relative-path-outside-a-contest ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory (expand-file-name "A" root))
+                    :build-dir "build")))
+      (should (equal (substring-no-properties
+                      (rbx--package-label package root nil nil))
+                     "A/")))))
+
+(ert-deftest rbx-package-label-shows-colored-letter-inside-a-contest ()
+  (rbx-test-with-directory root
+    (let* ((package (rbx-package-create
+                     :root (file-name-as-directory (expand-file-name "A" root))
+                     :build-dir "build"))
+           (membership (rbx-contest-membership-create
+                        :root root
+                        :contest (rbx-contest-create :name "Finals")
+                        :problem (rbx-contest-problem-create
+                                  :short-name "A" :color "#ff0000")))
+           (label (rbx--package-label package root membership nil)))
+      (should (equal (substring-no-properties label) "A  A"))
+      (should (equal (get-text-property 0 'font-lock-face label)
+                     '(:foreground "#ff0000"))))))
+
+(ert-deftest rbx-package-label-qualifies-colliding-letters-with-contest-name ()
+  (rbx-test-with-directory root
+    (let* ((package (rbx-package-create
+                     :root (file-name-as-directory
+                            (expand-file-name "div1/A" root))
+                     :build-dir "build"))
+           (membership (rbx-contest-membership-create
+                        :root (expand-file-name "div1" root)
+                        :contest (rbx-contest-create :name "Div 1")
+                        :problem (rbx-contest-problem-create
+                                  :short-name "A"))))
+      (should (equal (substring-no-properties
+                      (rbx--package-label package root membership t))
+                     "Div 1 · A  A")))))
+
+(ert-deftest rbx-package-heading-label-falls-back-outside-a-contest ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (cl-letf (((symbol-function 'rbx-package-contest-membership)
+                 (lambda (_package) nil)))
+        (should (equal (rbx--package-heading-label package "fallback")
+                       "fallback"))))))
+
+(ert-deftest rbx-package-heading-label-shows-letter-inside-a-contest ()
+  (rbx-test-with-directory root
+    (let* ((package-root (expand-file-name "A" root))
+           (package (progn
+                      (make-directory package-root t)
+                      (rbx-package-create
+                       :root (file-name-as-directory package-root)
+                       :build-dir "build")))
+           (membership (rbx-contest-membership-create
+                        :root root
+                        :contest (rbx-contest-create :name "Finals")
+                        :problem (rbx-contest-problem-create
+                                  :short-name "A"))))
+      (cl-letf (((symbol-function 'rbx-package-contest-membership)
+                 (lambda (_package) membership)))
+        (should (equal (substring-no-properties
+                        (rbx--package-heading-label package "fallback"))
+                       "A · A"))))))
+
+(ert-deftest rbx-render-contest-shows-one-block-per-variant ()
+  (rbx-test-with-directory root
+    (let* ((canonical (rbx-contest-create
+                       :name "Finals" :variant-id nil
+                       :problems (list (rbx-contest-problem-create
+                                        :short-name "A" :color "#ff0000"))))
+           (div1 (rbx-contest-create
+                 :name "Division 1" :variant-id "div1"
+                 :problems (list (rbx-contest-problem-create
+                                  :short-name "B")))))
+      (cl-letf (((symbol-function 'rbx-load-contest-variants)
+                (lambda (_root) (list canonical div1))))
+        (with-temp-buffer
+          (rbx-view-mode)
+          (setq-local rbx--contest-root root)
+          (setq-local rbx--view 'contest)
+          (rbx-refresh)
+          (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+            (should (string-match-p "Canonical" text))
+            (should (string-match-p "div1" text))
+            (should (string-match-p "A" text))
+            (should (string-match-p "B" text))))))))
+
+(ert-deftest rbx-render-contest-without-any-manifest ()
+  (rbx-test-with-directory root
+    (cl-letf (((symbol-function 'rbx-load-contest-variants)
+              (lambda (_root) nil)))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--contest-root root)
+        (setq-local rbx--view 'contest)
+        (rbx-refresh)
+        (should (string-match-p
+                "No contest.rbx.yml"
+                (buffer-substring-no-properties (point-min) (point-max))))))))
+
+(ert-deftest rbx-open-contest-problem-opens-run-view-for-resolved-path ()
+  (rbx-test-with-directory root
+    (let ((package-root (expand-file-name "A" root)))
+      (rbx-test-write root "A/problem.rbx.yml" "name: Alpha\n")
+      (let (opened)
+        (cl-letf (((symbol-function 'rbx-run-view)
+                  (lambda (package) (setq opened package))))
+          (rbx-open-contest-problem
+           (list :kind 'contest-problem :package-path package-root))
+          (should opened)
+          (should (equal (rbx-package-root opened)
+                        (file-name-as-directory package-root))))))))
+
+(ert-deftest rbx-open-contest-problem-errors-without-a-package ()
+  (rbx-test-with-directory root
+    (should-error
+     (rbx-open-contest-problem
+      (list :kind 'contest-problem
+           :package-path (expand-file-name "missing" root)))
+     :type 'user-error)))
+
+(ert-deftest rbx-contest-view-errors-without-a-contest-manifest ()
+  (rbx-test-with-directory root
+    (cl-letf (((symbol-function 'rbx-find-contest-root)
+              (lambda (&optional _directory) nil)))
+      (let ((default-directory root))
+        (should-error (rbx-contest-view) :type 'user-error)))))
+
+(ert-deftest rbx-most-recently-touched-picks-latest-skeleton ()
+  (rbx-test-with-directory root
+    (let* ((root-a (expand-file-name "A" root))
+           (root-b (expand-file-name "B" root))
+           (package-a (progn (make-directory root-a t)
+                             (rbx-package-create
+                              :root (file-name-as-directory root-a)
+                              :build-dir "build")))
+           (package-b (progn (make-directory root-b t)
+                             (rbx-package-create
+                              :root (file-name-as-directory root-b)
+                              :build-dir "build"))))
+      (rbx-test-write root "A/.rbx/runs/skeleton.yml" "solutions: []\n")
+      (rbx-test-write root "B/.rbx/runs/skeleton.yml" "solutions: []\n")
+      (set-file-times (rbx-skeleton-path package-a)
+                      (time-subtract (current-time) 10))
+      (should (equal (rbx--most-recently-touched (list package-a package-b))
+                     package-b))
+      (should-not (rbx--most-recently-touched nil)))))
+
+(ert-deftest rbx-toggle-contest-follow-retargets-to-latest-activity ()
+  (rbx-test-with-directory root
+    (let* ((root-a (expand-file-name "A" root))
+           (root-b (expand-file-name "B" root)))
+      (rbx-test-write root "A/problem.rbx.yml" "name: Alpha\n")
+      (rbx-test-write root "B/problem.rbx.yml" "name: Beta\n")
+      (rbx-test-write root "A/.rbx/runs/skeleton.yml" "solutions: []\n")
+      (rbx-test-write root "B/.rbx/runs/skeleton.yml" "solutions: []\n")
+      (set-file-times (expand-file-name "A/.rbx/runs/skeleton.yml" root)
+                      (time-subtract (current-time) 10))
+      (let* ((package-a (rbx-find-package root-a))
+             (package-b (rbx-find-package root-b))
+             (membership (rbx-contest-membership-create
+                          :root root
+                          :contest (rbx-contest-create
+                                   :problems
+                                   (list (rbx-contest-problem-create
+                                          :short-name "A" :path "A")
+                                        (rbx-contest-problem-create
+                                          :short-name "B" :path "B")))))
+             watch-args watch-callback)
+        (cl-letf (((symbol-function 'rbx-package-contest-membership)
+                  (lambda (_package) membership))
+                 ((symbol-function 'rbx-watch-contest)
+                  (lambda (packages callback)
+                    (setq watch-args packages watch-callback callback)
+                    (list 'stub-watcher)))
+                 ((symbol-function 'rbx-stop-watcher) #'ignore)
+                 ((symbol-function 'rbx--start-buffer-watcher) #'ignore))
+          (with-temp-buffer
+            (rbx-view-mode)
+            (setq-local rbx--package package-a)
+            (setq-local rbx--view 'run)
+            (rbx-refresh)
+            (should-not (string-match-p
+                        "following"
+                        (buffer-substring-no-properties
+                         (point-min) (point-max))))
+            (rbx-toggle-contest-follow)
+            (should (equal watch-args (list package-a package-b)))
+            (should (string-match-p
+                    "following"
+                    (buffer-substring-no-properties
+                     (point-min) (point-max))))
+            (funcall watch-callback package-b)
+            (should (equal rbx--package package-b))
+            (rbx-toggle-contest-follow)
+            (should-not rbx--contest-watchers)
+            (should-not (string-match-p
+                        "following"
+                        (buffer-substring-no-properties
+                         (point-min) (point-max))))))))))
+
+(ert-deftest rbx-toggle-contest-follow-errors-outside-a-contest ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (let ((package (rbx-find-package root)))
+      (cl-letf (((symbol-function 'rbx-package-contest-membership)
+                (lambda (_package) nil)))
+        (with-temp-buffer
+          (rbx-view-mode)
+          (setq-local rbx--package package)
+          (setq-local rbx--view 'run)
+          (should-error (rbx-toggle-contest-follow) :type 'user-error))))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here
