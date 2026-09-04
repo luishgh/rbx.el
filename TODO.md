@@ -49,20 +49,27 @@ Code/VSIX packaging context (sideloading, remote SSH/devcontainer install,
 
 ## Variables in statements
 
-Entirely unimplemented — no code currently touches `.tex` statement files.
+Implemented in `rbx-statement.el`, mirroring the VS Code extension's own
+mechanism: it calls the read-only `rbx vars`/`rbx vars --render` rather than
+reimplementing Jinja2, the one deliberate exception to this package's rule
+of never invoking rbx (see `AGENTS.md`).
 
-- [ ] Inline/inlay expansion of `\VAR{...}` references with real-time values.
-- [ ] Filter support: `sci`, `rsci`, and Jinja2 builtins (`upper`,
-      `round(2)`, etc.).
-- [ ] Test-group variable resolution, including named group access, group
-      overrides, and shorthand/bracket notation. Note `rbx-testset-group-vars`
-      is already parsed from `testset.yml` but nothing consumes it.
-- [ ] Plain-text rendering of expressions (superscript digits, `×` for
-      multiplication).
-- [ ] Hint-placement rules: only for explicitly named groups; no hints for
+- [x] Inline/inlay expansion of `\VAR{...}` references with real-time values
+      (overlay hints wired into `rbx-mode`).
+- [x] Filter support: `sci`, `rsci`, and Jinja2 builtins — full fidelity,
+      since `rbx vars --render` evaluates the pipeline, not a local
+      reimplementation.
+- [x] Test-group variable resolution, including named group access, group
+      overrides, and shorthand/bracket notation, via live `rbx vars --json
+      --groups` output (not `rbx-testset-group-vars`/`testset.yml`, which
+      would require a prior `rbx build`).
+- [x] Plain-text rendering of expressions (superscript digits, `×` for
+      multiplication) — `--target text`, rendered by rbx itself.
+- [x] Hint-placement rules: only for explicitly named groups; no hints for
       dynamic loops, undefined variables, problem/contest-scoped variables,
-      or half-typed/typo'd pipelines.
-- [ ] `rbx-statement-var-hints` custom variable (mirrors
+      or half-typed/typo'd pipelines — enforced structurally by the scanner
+      grammar in `rbx-statement-scan-buffer`.
+- [x] `rbx-statement-var-hints` custom variable (mirrors
       `rbx.statementVarHints`) to toggle the feature.
 
 ## Finding rbx / yq

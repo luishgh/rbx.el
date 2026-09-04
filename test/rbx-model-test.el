@@ -347,5 +347,43 @@
 (ert-deftest rbx-testset-statistics-nil-for-a-testset-without-entries ()
   (should-not (rbx-testset-statistics (rbx-testset-create))))
 
+(ert-deftest rbx-parse-problem-statements-reads-declared-fields ()
+  (let ((statements (rbx-parse-problem-statements
+                     '(("name" . "problem-a")
+                       ("statements" .
+                        ((("language" . "en") ("title" . "Problem A")
+                          ("file" . "statement/statement.rbx.tex")
+                          ("type" . "rbxTeX"))))))))
+    (should (= (length statements) 1))
+    (let ((statement (car statements)))
+      (should (equal (rbx-problem-statement-language statement) "en"))
+      (should (equal (rbx-problem-statement-title statement) "Problem A"))
+      (should (equal (rbx-problem-statement-file statement)
+                    "statement/statement.rbx.tex"))
+      (should (equal (rbx-problem-statement-type statement) "rbxTeX")))))
+
+(ert-deftest rbx-parse-problem-statements-requires-a-file ()
+  (should-not (rbx-parse-problem-statements
+              '(("statements" . ((("language" . "en"))))))))
+
+(ert-deftest rbx-parse-problem-statements-empty-without-any-declared ()
+  (should-not (rbx-parse-problem-statements '(("name" . "problem-a")))))
+
+(ert-deftest rbx-package-statement-p-matches-a-declared-file ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "ignored\n")
+    (rbx-test-write root "statement/statement.rbx.tex" "content\n")
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                (lambda (_path)
+                  '(("statements" .
+                    ((("file" . "statement/statement.rbx.tex"))))))))
+        (should (rbx-package-statement-p
+                package (expand-file-name "statement/statement.rbx.tex" root)))
+        (should-not (rbx-package-statement-p
+                    package (expand-file-name "other.tex" root)))))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here

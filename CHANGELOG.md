@@ -27,6 +27,11 @@ project follows [Semantic Versioning](https://semver.org/).
 - A visualization gallery view (`rbx-visualization-gallery`, key `G`),
   grouped like the testset browser, with inline image thumbnails and link
   lines for HTML visualizations.
+- Statement variable hints: `rbx-mode` shows what each `\VAR{...}` reference
+  in a declared statement resolves to, including filters, by calling the
+  read-only `rbx vars`/`rbx vars --render` the same way the VS Code
+  extension does — the one deliberate exception to this package never
+  invoking rbx. New `rbx-statement-var-hints` and `rbx-program` settings.
 
 ### Changed
 

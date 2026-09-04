@@ -71,5 +71,109 @@
                 (should (eq stopped 'watcher))))
           (kill-buffer buffer))))))
 
+(ert-deftest rbx-mode-shows-statement-hints-for-a-declared-statement ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "statement.tex" "\\VAR{n}\n")))
+      (rbx-test-write root "problem.rbx.yml" "ignored\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-read-yaml)
+                       (lambda (_path)
+                         '(("statements" . ((("file" . "statement.tex")))))))
+                      ((symbol-function 'rbx-statement-load-vars)
+                       (lambda (_package callback)
+                         (funcall callback
+                                  (rbx-statement-vars-payload-create
+                                   :vars '(("n" . "5")) :groups nil))))
+                      ((symbol-function 'rbx-watch-package)
+                       (lambda (&rest _args) 'watcher))
+                      ((symbol-function 'rbx-stop-watcher) #'ignore))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should (= (length rbx--statement-hint-overlays) 1))
+                (should (equal (overlay-get (car rbx--statement-hint-overlays)
+                                            'after-string)
+                              (propertize " → 5" 'face 'rbx-statement-hint)))
+                (rbx-mode -1)
+                (should-not rbx--statement-hint-overlays)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-skips-statement-hints-outside-a-declared-statement ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "notes.tex" "\\VAR{n}\n")))
+      (rbx-test-write root "problem.rbx.yml" "ignored\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-read-yaml)
+                       (lambda (_path)
+                         '(("statements" . ((("file" . "statement.tex")))))))
+                      ((symbol-function 'rbx-watch-package)
+                       (lambda (&rest _args) 'watcher))
+                      ((symbol-function 'rbx-stop-watcher) #'ignore))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should-not rbx--statement-hint-overlays)
+                (rbx-mode -1)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-respects-rbx-statement-var-hints-toggle ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "statement.tex" "\\VAR{n}\n"))
+          (rbx-statement-var-hints nil))
+      (rbx-test-write root "problem.rbx.yml" "ignored\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-read-yaml)
+                       (lambda (_path)
+                         '(("statements" . ((("file" . "statement.tex")))))))
+                      ((symbol-function 'rbx-watch-package)
+                       (lambda (&rest _args) 'watcher))
+                      ((symbol-function 'rbx-stop-watcher) #'ignore))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should-not rbx--statement-hint-overlays)
+                (rbx-mode -1)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-refreshes-statement-hints-after-artifact-changes ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "statement.tex" "\\VAR{n}\n"))
+          callback invalidated (value "5"))
+      (rbx-test-write root "problem.rbx.yml" "ignored\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-read-yaml)
+                       (lambda (_path)
+                         '(("statements" . ((("file" . "statement.tex")))))))
+                      ((symbol-function 'rbx-statement-load-vars)
+                       (lambda (_package callback)
+                         (funcall callback
+                                  (rbx-statement-vars-payload-create
+                                   :vars (list (cons "n" value)) :groups nil))))
+                      ((symbol-function 'rbx-statement-invalidate)
+                       (lambda (_package) (setq invalidated t)))
+                      ((symbol-function 'rbx-watch-package)
+                       (lambda (_package function)
+                         (setq callback function)
+                         'watcher))
+                      ((symbol-function 'rbx-stop-watcher) #'ignore))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should (equal (overlay-get (car rbx--statement-hint-overlays)
+                                            'after-string)
+                              (propertize " → 5" 'face 'rbx-statement-hint)))
+                (setq value "6")
+                (funcall callback)
+                (should invalidated)
+                (should (equal (overlay-get (car rbx--statement-hint-overlays)
+                                            'after-string)
+                              (propertize " → 6" 'face 'rbx-statement-hint)))
+                (rbx-mode -1)))
+          (kill-buffer buffer))))))
+
 (provide 'rbx-test)
 ;;; rbx-test.el ends here

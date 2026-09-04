@@ -301,6 +301,10 @@ mirroring rbx's own `contest.*.rbx.yml' variant discovery."
         (cons (cons nil canonical) variants)
       variants)))
 
+(defun rbx-problem-manifest-path (package)
+  "Return PACKAGE's problem manifest path."
+  (expand-file-name rbx-problem-manifest (rbx-package-root package)))
+
 (defun rbx-cache-path (package)
   "Return PACKAGE's cache directory."
   (expand-file-name rbx-cache-directory (rbx-package-root package)))

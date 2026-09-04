@@ -111,6 +111,11 @@
   "One declared problem entry in a contest manifest."
   short-name aliases path color color-name)
 
+(cl-defstruct (rbx-problem-statement
+               (:constructor rbx-problem-statement-create))
+  "One declared statement entry in a problem manifest."
+  language title file type)
+
 (cl-defstruct (rbx-contest (:constructor rbx-contest-create))
   "A parsed rbx contest manifest.
 
@@ -504,6 +509,22 @@ Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
        (rbx-contest-problem-short-name problem))
    contest-root))
 
+(defun rbx--parse-problem-statement (raw)
+  "Parse RAW as a problem statement entry, or return nil."
+  (when-let ((file (rbx--model-string raw "file")))
+    (rbx-problem-statement-create
+     :language (rbx--model-string raw "language")
+     :title (rbx--model-string raw "title")
+     :file file
+     :type (rbx--model-string raw "type"))))
+
+(defun rbx-parse-problem-statements (raw)
+  "Parse RAW (a problem manifest mapping) as a list of `rbx-problem-statement'."
+  (when (rbx--wire-mapping-p raw)
+    (delq nil
+          (mapcar #'rbx--parse-problem-statement
+                  (rbx--wire-sequence (rbx--model-field raw "statements"))))))
+
 (defun rbx-testset-testcases (testset)
   "Join TESTSET entries to their build-time metadata."
   (let ((by-key (make-hash-table :test #'equal)))
@@ -585,6 +606,21 @@ no testcases is omitted."
 (defun rbx-load-testset (package)
   "Read PACKAGE's current testset manifest."
   (rbx--load-artifact (rbx-testset-path package) #'rbx-parse-testset))
+
+(defun rbx-load-problem-statements (package)
+  "Read PACKAGE's declared statements from its problem manifest."
+  (rbx--load-artifact (rbx-problem-manifest-path package)
+                      #'rbx-parse-problem-statements))
+
+(defun rbx-package-statement-p (package file)
+  "Return non-nil when FILE is one of PACKAGE's declared statement files."
+  (when-let ((statements (rbx-load-problem-statements package)))
+    (seq-some
+     (lambda (statement)
+       (rbx--same-file-p
+        (rbx-package-file-path package (rbx-problem-statement-file statement))
+        file))
+     statements)))
 
 (defun rbx-load-contest (path &optional variant-id)
   "Read the contest manifest at PATH, tagging it with VARIANT-ID."

@@ -7,8 +7,12 @@ compiler findings, and native read-only file and diff buffers for testcase
 inspection.
 
 The package follows the same terminal-first rule as the official extension:
-**it never invokes `rbx`**. Run `rbx build` or `rbx run` yourself; Emacs watches
-the package and renders the artifacts that land on disk.
+**it never invokes `rbx`**, with one deliberate, narrow exception. Run
+`rbx build` or `rbx run` yourself; Emacs watches the package and renders the
+artifacts that land on disk. The exception is statement variable hints: `rbx
+vars` and `rbx vars --render` are read-only and idempotent by rbx's own
+design, safe to call while a package is being edited, and the VS Code
+extension calls them the same way.
 
 ## Features
 
@@ -42,6 +46,10 @@ the package and renders the artifacts that land on disk.
 - Best-effort following of the contest problem most recently touched by
   `rbx contest each run`, inferred from run-artifact activity since rbx
   itself keeps no on-disk record of which problem is currently running.
+- Statement variable hints: what each `\VAR{...}` reference in a declared
+  statement resolves to, including filters (`sci`, `rsci`, and Jinja
+  builtins), shown next to the reference and kept live as you edit or as
+  `problem.rbx.yml` changes.
 - Support for custom `buildDir` values from local rbx presets.
 - Version-skew-tolerant artifact readers using `yq` and Emacs's native JSON
   parser, with correct generated artifact stems.
@@ -89,7 +97,7 @@ An example `use-package` configuration:
 ```elisp
 (use-package rbx
   :bind (("C-c r" . rbx-dispatch))
-  :hook ((c-mode c++-mode python-base-mode) . rbx-mode)
+  :hook ((c-mode c++-mode python-base-mode latex-mode LaTeX-mode) . rbx-mode)
   :custom
   (rbx-testcase-layout 'below)
   (rbx-solution-label 'trimmed))
@@ -143,11 +151,20 @@ Enable `rbx-mode` in solution buffers to bind `C-c r` and publish findings from
 the most recent compile phase through Flymake. Diagnostics refresh when the rbx
 artifacts change.
 
+Enable `rbx-mode` in a statement buffer (anything `problem.rbx.yml` declares
+under `statements:`) to show what each `\VAR{...}` reference resolves to,
+right after it, kept live as you edit or as `problem.rbx.yml` changes. Only a
+reference rbx can answer for gets a hint — a bare package var, a loop-bound
+group, an undefined name, or a half-typed filter pipeline simply shows
+nothing, never a guess.
+
 ## Customization
 
 - `rbx-testcase-layout`: split the initial testcase panes `below` or `beside`.
 - `rbx-solution-label`: show solution paths as `full`, `trimmed`, or `basename`.
 - `rbx-compilation-diagnostics`: enable or disable the Flymake backend.
+- `rbx-statement-var-hints`: enable or disable `\VAR{...}` value hints.
+- `rbx-program`: path to the `rbx` executable used for statement hints.
 - `rbx-refresh-delay`: debounce interval for filesystem notifications.
 
 Use `M-x customize-group RET rbx` to edit these settings interactively.
@@ -171,10 +188,11 @@ The generated input basename—not merely the testcase index—determines
 ## Scope
 
 The package observes existing artifacts. It does not run builds, runs, stress
-tests, visualizers, statements, or packaging commands. Existing visualization
-files can be opened from the testset view; generating new ones remains a
-terminal operation. The testset and run surfaces are the primary supported
-workflow for the initial release.
+tests, visualizers, or packaging commands. Existing visualization files can
+be opened from the testset view; generating new ones remains a terminal
+operation. The one exception is statement variable hints (see Features),
+which call the read-only `rbx vars`/`rbx vars --render`. The testset and run
+surfaces are the primary supported workflow for the initial release.
 
 ## Development
 
