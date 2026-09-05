@@ -1,6 +1,7 @@
 .direnv/
 .env/
 .git-data/
+.venv-rbx/
 *.elc
 *-autoloads.el
 

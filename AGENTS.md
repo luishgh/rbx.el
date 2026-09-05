@@ -33,6 +33,15 @@ This repository implements an Emacs 30 package inspired by the official
   it, implement only enough behavior to pass it, then refactor while green.
 - Keep tests hermetic.  Create fixture packages under temporary directories;
   never require an installed `rbx` executable.
+- For integration testing that does exercise a real `rbx` (validating that
+  fixtures still match its actual output, say), get one via `make rbx-venv`
+  rather than `guix.scm`.  `rbx`'s own dependency tree is large and several
+  of its dependencies ship no source release on PyPI (wheels only); Guix's
+  build-from-source rule makes packaging it from scratch far more work than
+  a pinned, hash-locked `pip install` from `rbx-requirements.txt` (see
+  README.md).  Guix's read-only store also breaks one of `rbx`'s own preset-
+  copying code paths, which assumes it can write into a copy of its own
+  bundled resources -- a plain venv install never hits this.
 - Run `guix shell --pure -m manifest.scm -- make check` before every commit.
   This includes ERT, byte compilation, Checkdoc, and package-lint in an
   isolated environment.

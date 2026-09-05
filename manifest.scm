@@ -9,5 +9,7 @@
    "findutils"
    "git"
    "make"
+   "python"
+   "python-pip"
    "ripgrep"
    "yq"))

@@ -1,8 +1,9 @@
 EMACS ?= emacs
+PYTHON ?= python3
 BATCH = $(EMACS) -Q --batch -L . -L test
 ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el
 
-.PHONY: test compile checkdoc package-lint check clean
+.PHONY: test compile checkdoc package-lint check clean rbx-venv
 
 test:
 	$(BATCH) -l test/test-helper.el \
@@ -28,3 +29,14 @@ check: clean test compile checkdoc package-lint
 
 clean:
 	find . -name '*.elc' -delete
+
+# Real `rbx` binary for integration testing, from a pinned, hash-locked
+# requirements file (see rbx-requirements.txt) -- not from guix.scm, since
+# rbx's own dependency tree is far easier to satisfy from prebuilt PyPI
+# wheels than to rebuild from source.
+rbx-venv: .venv-rbx/bin/rbx
+
+.venv-rbx/bin/rbx: rbx-requirements.txt
+	$(PYTHON) -m venv .venv-rbx
+	.venv-rbx/bin/pip install --require-hashes -r rbx-requirements.txt
+	touch $@

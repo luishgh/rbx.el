@@ -213,6 +213,19 @@ This runs ERT, byte compilation, Checkdoc, and package-lint in an isolated
 environment. See [AGENTS.md](AGENTS.md) for architecture, TDD, and commit
 conventions.
 
+For integration testing against a real `rbx` (rather than fixture packages),
+get a pinned copy from PyPI, hash-locked via `rbx-requirements.txt`:
+
+```sh
+guix shell --pure -m manifest.scm -- make rbx-venv
+```
+
+This creates `.venv-rbx` and installs the exact `rbx` release and dependency
+versions `rbx-requirements.txt` pins; use `.venv-rbx/bin/rbx`. To bump the
+pinned version, update the dependency in the throwaway `uv`-managed project
+used to generate the lock, rerun `uv lock && uv export --no-dev
+--no-emit-project -o rbx-requirements.txt`, and replace the file.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
