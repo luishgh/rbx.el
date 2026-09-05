@@ -9,6 +9,10 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Optional evil-mode support (`rbx-evil.el`, opt in with
+  `(with-eval-after-load 'evil (require 'rbx-evil))`): `rbx-view-mode` opens
+  in evil's normal state and keeps its own bindings, with `g` freed for
+  evil's motions and refresh moved to `g r`. `evil` is not a hard dependency.
 - Left-fringe indicators per solution in the run view (tick, red triangle,
   or yellow warning), distinct from the existing inline match-marker glyph.
 - Contest support: discovery and tolerant parsing of `contest.rbx.yml` and

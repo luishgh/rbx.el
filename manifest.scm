@@ -2,6 +2,7 @@
  '("bash"
    "coreutils"
    "diffutils"
+   "emacs-evil"
    "emacs-magit"
    "emacs-package-lint"
    "emacs-transient"

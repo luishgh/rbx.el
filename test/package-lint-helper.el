@@ -17,7 +17,8 @@
       package-archive-contents nil)
 
 (dolist (dependency '((magit-section . "magit-section")
-                      (transient . "transient")))
+                      (transient . "transient")
+                      (evil . "evil")))
   (let* ((located (locate-library (cdr dependency)))
          (source (and located
                       (if (string-suffix-p ".elc" located)

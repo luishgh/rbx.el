@@ -1,7 +1,7 @@
 EMACS ?= emacs
 PYTHON ?= python3
 BATCH = $(EMACS) -Q --batch -L . -L test
-ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el
+ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el rbx-evil.el
 
 .PHONY: test compile checkdoc package-lint check clean rbx-venv
 
@@ -11,6 +11,7 @@ test:
 	  -l test/rbx-model-test.el \
 	  -l test/rbx-statement-test.el \
 	  -l test/rbx-ui-test.el \
+	  -l test/rbx-evil-test.el \
 	  -l test/rbx-test.el \
 	  -f ert-run-tests-batch-and-exit
 
@@ -22,7 +23,7 @@ checkdoc:
 
 package-lint:
 	$(BATCH) -l test/package-lint-helper.el -l package-lint \
-	  -f package-lint-batch-and-exit rbx.el
+	  -f package-lint-batch-and-exit rbx.el rbx-evil.el
 
 check: clean test compile checkdoc package-lint
 	$(MAKE) clean

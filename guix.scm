@@ -19,7 +19,7 @@
                #:recursive? #t
                #:select? (git-predicate (current-source-directory))))
   (build-system emacs-build-system)
-  (native-inputs (list emacs-package-lint))
+  (native-inputs (list emacs-evil emacs-package-lint))
   (propagated-inputs (list emacs-magit emacs-transient yq))
   (home-page "https://github.com/luishgh/rbx.el")
   (synopsis "Inspect rbx runs and testsets from Emacs")

@@ -22,6 +22,13 @@
 ;; `rbx-run-view' and `rbx-testset-view' directly.  Enable `rbx-mode' in
 ;; solution buffers to publish compiler findings through Flymake, and in
 ;; statement buffers to show `\VAR{...}' value hints.
+;;
+;; For evil-mode bindings in `rbx-view-mode', load `rbx-evil.el' from your
+;; own configuration once `evil' is loaded, e.g.:
+;;
+;;   (with-eval-after-load 'evil (require 'rbx-evil))
+;;
+;; `evil' is never a hard dependency of this package.
 
 ;;; Code:
 

@@ -127,6 +127,15 @@ The view uses familiar Magit navigation:
 | `?` | Open the rbx Transient |
 | `q` | Close the view window |
 
+For `evil` users, add this to your configuration to open the view in evil's
+normal state, with every key above unchanged except `g`: it is freed for
+evil's own `g`-prefixed motions (`gg`, `G`, ...), and refresh moves to `g r`.
+
+```elisp
+(with-eval-after-load 'evil
+  (require 'rbx-evil))
+```
+
 On a testcase, `RET` opens the input and a second pane. For run testcases that
 pane contains an output-versus-answer diff; for built tests it contains the
 expected answer. The Transient can switch the second pane between output,
