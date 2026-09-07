@@ -370,17 +370,17 @@
                       (time-subtract (current-time) 10))
       (let* ((package-a (rbx-find-package root-a))
              (package-b (rbx-find-package root-b))
-             (membership (rbx-contest-membership-create
-                          :root root
-                          :contest (rbx-contest-create
-                                   :problems
-                                   (list (rbx-contest-problem-create
-                                          :short-name "A" :path "A")
-                                        (rbx-contest-problem-create
-                                          :short-name "B" :path "B")))))
+             (problem-a (rbx-contest-problem-create :short-name "A" :path "A"))
+             (problem-b (rbx-contest-problem-create :short-name "B" :path "B"))
+             (contest (rbx-contest-create :problems (list problem-a problem-b)))
              watch-args watch-callback)
         (cl-letf (((symbol-function 'rbx-package-contest-membership)
-                  (lambda (_package) membership))
+                  (lambda (package)
+                    (rbx-contest-membership-create
+                     :root root :contest contest
+                     :problem (if (rbx--same-file-p (rbx-package-root package)
+                                                    root-a)
+                                 problem-a problem-b))))
                  ((symbol-function 'rbx-watch-contest)
                   (lambda (packages callback)
                     (setq watch-args packages watch-callback callback)
