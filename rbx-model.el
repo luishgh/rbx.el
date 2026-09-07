@@ -542,6 +542,13 @@ Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
                        by-key)))
      (rbx-testset-entries testset))))
 
+(defun rbx-testset-find-test (testset group index)
+  "Return TESTSET's `rbx-testset-test' for GROUP and INDEX, or nil."
+  (seq-find (lambda (test)
+              (and (equal (rbx-testset-test-group test) group)
+                   (equal (rbx-testset-test-index test) index)))
+            (rbx-testset-tests testset)))
+
 (defun rbx-testset-statistics (testset)
   "Return per-group `rbx-testset-group-stats' for TESTSET.
 

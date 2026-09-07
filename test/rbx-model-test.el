@@ -179,6 +179,17 @@
     (should-not (rbx-variable-bounds-max-hit
                  (cdr (assoc "n" (rbx-group-bounds-bounds bounds)))))))
 
+(ert-deftest rbx-testset-find-test-looks-up-by-group-and-index ()
+  (let* ((wanted (rbx-testset-test-create :group "main" :index 3))
+        (testset (rbx-testset-create
+                  :tests (list (rbx-testset-test-create :group "main" :index 0)
+                              wanted
+                              (rbx-testset-test-create :group "samples"
+                                                       :index 3)))))
+    (should (eq (rbx-testset-find-test testset "main" 3) wanted))
+    (should-not (rbx-testset-find-test testset "main" 4))
+    (should-not (rbx-testset-find-test testset "other" 3))))
+
 (ert-deftest rbx-parse-contest-problem-reads-declared-fields ()
   (let ((problem (rbx--parse-contest-problem
                   '(("short_name" . "A")

@@ -1538,37 +1538,55 @@ Returns whatever `browse-url-of-file' or `find-file-other-window' returns."
       (browse-url-of-file path)
     (find-file-other-window path)))
 
-(defun rbx--testset-testcase-visualization-path (testcase channel)
-  "Return TESTCASE's CHANNEL visualization path, or nil.
+(defun rbx--testset-test-visualization-path (test channel)
+  "Return TEST's CHANNEL visualization path, or nil.
 
 CHANNEL is `input' or `output'."
-  (let* ((test (rbx-testset-testcase-test testcase))
-         (visualization (and test (rbx-testset-test-visualization test))))
+  (let ((visualization (and test (rbx-testset-test-visualization test))))
     (and visualization
         (pcase channel
           ('input (rbx-testset-visualization-input visualization))
           ('output (rbx-testset-visualization-output visualization))))))
 
+(defun rbx--testset-testcase-visualization-path (testcase channel)
+  "Return TESTCASE's CHANNEL visualization path, or nil.
+
+CHANNEL is `input' or `output'."
+  (rbx--testset-test-visualization-path
+   (rbx-testset-testcase-test testcase) channel))
+
+(defun rbx--context-testset-test (context)
+  "Return the `rbx-testset-test' backing CONTEXT, or nil.
+
+CONTEXT may be a `testset-testcase' context, whose :testcase value already
+wraps the test, or a `run-testcase' context, whose :testcase value is a bare
+`rbx-testcase' entry looked up by group and index in the package's testset."
+  (let ((testcase (plist-get context :testcase)))
+    (pcase (plist-get context :kind)
+      ('testset-testcase (rbx-testset-testcase-test testcase))
+      ('run-testcase
+       (when-let* ((package (plist-get context :package))
+                   (testset (rbx-load-testset package)))
+         (rbx-testset-find-test testset
+                                (rbx-testcase-group testcase)
+                                (rbx-testcase-index testcase)))))))
+
 (defun rbx-open-visualization (&optional context)
-  "Open the input visualization for the testset testcase at CONTEXT."
+  "Open the input visualization for the testcase at CONTEXT."
   (interactive)
   (let* ((value (or context (rbx--context)))
-         (testcase (plist-get value :testcase))
-         (path (and (rbx-testset-testcase-p testcase)
-                   (rbx--testset-testcase-visualization-path
-                    testcase 'input))))
+         (path (rbx--testset-test-visualization-path
+                (rbx--context-testset-test value) 'input)))
     (unless path (user-error "No input visualization for this testcase"))
     (rbx--open-visualization-path
      (rbx-package-file-path (plist-get value :package) path))))
 
 (defun rbx-open-answer-visualization (&optional context)
-  "Open the answer visualization for the testset testcase at CONTEXT."
+  "Open the answer visualization for the testcase at CONTEXT."
   (interactive)
   (let* ((value (or context (rbx--context)))
-         (testcase (plist-get value :testcase))
-         (path (and (rbx-testset-testcase-p testcase)
-                   (rbx--testset-testcase-visualization-path
-                    testcase 'output))))
+         (path (rbx--testset-test-visualization-path
+                (rbx--context-testset-test value) 'output)))
     (unless path (user-error "No answer visualization for this testcase"))
     (rbx--open-visualization-path
      (rbx-package-file-path (plist-get value :package) path))))

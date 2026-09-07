@@ -704,6 +704,82 @@
       (list :kind 'testset-testcase :testcase testcase))
      :type 'user-error)))
 
+(ert-deftest rbx-open-visualization-opens-input-image-file-for-run-testcase ()
+  (rbx-test-with-directory root
+    (let* ((image (rbx-test-write root "visual/000.png" "fake-png-bytes")))
+      (rbx-test-write
+       root "build/testset.yml"
+       (concat "version: 1\ntask_type: BATCH\n"
+              "tests:\n- group: main\n  index: 0\n"
+              "  visualization:\n    input: visual/000.png\n"))
+      (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                          :build-dir "build"))
+            (context (list :kind 'run-testcase :package package
+                          :testcase (rbx-testcase-create :group "main"
+                                                         :index 0)))
+            (buffer (rbx-open-visualization context)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (equal (buffer-file-name) image)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-open-answer-visualization-opens-output-image-file-for-run-testcase ()
+  (rbx-test-with-directory root
+    (let* ((image (rbx-test-write root "visual/000-answer.png" "fake-bytes")))
+      (rbx-test-write
+       root "build/testset.yml"
+       (concat "version: 1\ntask_type: BATCH\n"
+              "tests:\n- group: main\n  index: 0\n"
+              "  visualization:\n    input: visual/000.png\n"
+              "    output: visual/000-answer.png\n"))
+      (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                          :build-dir "build"))
+            (context (list :kind 'run-testcase :package package
+                          :testcase (rbx-testcase-create :group "main"
+                                                         :index 0)))
+            (buffer (rbx-open-answer-visualization context)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (equal (buffer-file-name) image)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-open-visualization-errors-for-run-testcase-without-a-testset ()
+  (rbx-test-with-directory root
+    (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                        :build-dir "build"))
+          (context (list :kind 'run-testcase :package package
+                        :testcase (rbx-testcase-create :group "main"
+                                                       :index 0))))
+      (should-error (rbx-open-visualization context) :type 'user-error))))
+
+(ert-deftest rbx-open-visualization-errors-for-run-testcase-with-no-visualization ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root "build/testset.yml"
+     (concat "version: 1\ntask_type: BATCH\n"
+            "tests:\n- group: main\n  index: 0\n"
+            "  input_size: 4\n"))
+    (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                        :build-dir "build"))
+          (context (list :kind 'run-testcase :package package
+                        :testcase (rbx-testcase-create :group "main"
+                                                       :index 0))))
+      (should-error (rbx-open-visualization context) :type 'user-error))))
+
+(ert-deftest rbx-open-answer-visualization-errors-for-run-testcase-without-an-answer ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root "build/testset.yml"
+     (concat "version: 1\ntask_type: BATCH\n"
+            "tests:\n- group: main\n  index: 0\n"
+            "  visualization:\n    input: visual/000.png\n"))
+    (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                        :build-dir "build"))
+          (context (list :kind 'run-testcase :package package
+                        :testcase (rbx-testcase-create :group "main"
+                                                       :index 0))))
+      (should-error (rbx-open-answer-visualization context) :type 'user-error))))
+
 (ert-deftest rbx-visualization-thumbnail-builds-an-image-spec-for-a-picture ()
   (rbx-test-with-directory root
     (let ((path (rbx-test-write root "visual/000.png" "fake-png-bytes")))
