@@ -194,6 +194,7 @@
           (mapc #'rbx-stop-watcher watchers))))))
 
 (ert-deftest rbx-run-process-captures-stdout-stderr-and-exit-code ()
+  :tags '(needs-shell)
   (rbx-test-with-directory root
     (let ((program (rbx-test-write-executable
                     root "fake" "echo out; echo err >&2; exit 3\n"))
@@ -207,6 +208,7 @@
       (should (= (nth 2 result) 3)))))
 
 (ert-deftest rbx-run-process-writes-stdin ()
+  :tags '(needs-shell)
   (rbx-test-with-directory root
     (let ((program (rbx-test-write-executable root "fake" "cat\n"))
           result)
@@ -239,12 +241,14 @@
       (should-not result))))
 
 (ert-deftest rbx-run-process-sync-blocks-until-callback ()
+  :tags '(needs-shell)
   (rbx-test-with-directory root
     (let ((program (rbx-test-write-executable root "fake" "echo hi\n")))
       (should (equal (rbx--run-process-sync root program nil nil)
                      '("hi\n" "" 0))))))
 
 (ert-deftest rbx-command-available-p-true-for-a-working-executable ()
+  :tags '(needs-shell)
   (rbx-test-with-directory root
     (let ((program (rbx-test-write-executable root "fake" "exit 0\n")))
       (should (rbx--command-available-p program root)))))
@@ -255,6 +259,7 @@
       (should-not (rbx--command-available-p program root)))))
 
 (ert-deftest rbx-login-shell-path-finds-the-command ()
+  :tags '(needs-shell)
   (rbx-test-with-directory root
     (let* ((target (rbx-test-write-executable root "real-tool" "exit 0\n"))
           (shell (rbx-test-write-executable

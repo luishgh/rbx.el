@@ -1,6 +1,7 @@
 ;;; guix.scm --- Guix package for rbx.el -*- mode: scheme; -*-
 
-(use-modules (gnu packages emacs-build)
+(use-modules (gnu packages emacs)
+             (gnu packages emacs-build)
              (gnu packages emacs-xyz)
              (gnu packages textutils)
              (guix build-system emacs)
@@ -19,6 +20,15 @@
                #:recursive? #t
                #:select? (git-predicate (current-source-directory))))
   (build-system emacs-build-system)
+  (arguments
+   (list
+    ;; The build system defaults to `emacs-minimal', which lacks the image
+    ;; libraries (libpng, etc.) `rbx--visualization-thumbnail' needs.
+    #:emacs emacs
+    ;; Skip tests tagged `needs-shell': they exec a generated #!/bin/sh
+    ;; script, which fails in the build sandbox since it has no /bin/sh.
+    #:test-command
+    #~(list "make" "check" "ERT_SELECTOR=(not (tag needs-shell))")))
   (native-inputs (list emacs-evil emacs-package-lint))
   (propagated-inputs (list emacs-magit emacs-transient yq))
   (home-page "https://github.com/luishgh/rbx.el")

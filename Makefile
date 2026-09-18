@@ -3,6 +3,12 @@ PYTHON ?= python3
 BATCH = $(EMACS) -Q --batch -L . -L test
 ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el rbx-evil.el
 
+# Selects which ERT tests `test` runs. Override to skip tests that need
+# capabilities a sandboxed build environment doesn't provide, e.g.
+# ERT_SELECTOR='(not (tag needs-shell))' skips tests that exec a generated
+# #!/bin/sh script, which fails where no /bin/sh exists (see guix.scm).
+ERT_SELECTOR ?= t
+
 .PHONY: test compile checkdoc package-lint check clean rbx-venv
 
 test:
@@ -13,7 +19,7 @@ test:
 	  -l test/rbx-ui-test.el \
 	  -l test/rbx-evil-test.el \
 	  -l test/rbx-test.el \
-	  -f ert-run-tests-batch-and-exit
+	  --eval "(ert-run-tests-batch-and-exit '$(ERT_SELECTOR))"
 
 compile:
 	$(BATCH) -f batch-byte-compile $(ELISP)
