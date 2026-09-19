@@ -44,6 +44,7 @@ clean:
 rbx-venv: .venv-rbx/bin/rbx
 
 .venv-rbx/bin/rbx: rbx-requirements.txt
+	rm -rf .venv-rbx
 	$(PYTHON) -m venv .venv-rbx
 	.venv-rbx/bin/pip install --require-hashes -r rbx-requirements.txt
 	touch $@
