@@ -235,6 +235,22 @@ pinned version, update the dependency in the throwaway `uv`-managed project
 used to generate the lock, rerun `uv lock && uv export --no-dev
 --no-emit-project -o rbx-requirements.txt`, and replace the file.
 
+`test/rbx-integration-test.el` automates this: it scaffolds a real problem
+package with `.venv-rbx/bin/rbx create --preset default`, runs it, and feeds
+its actual artifacts to rbx.el's readers, to catch drift against fixture-only
+coverage. It is not part of `make check` and must run outside `guix shell
+--pure -m manifest.scm`: `rbx run` shells out to a C/C++ compiler, which that
+isolated manifest deliberately does not provide (see AGENTS.md). Run it
+directly on a host with `python3` and a C++ toolchain available:
+
+```sh
+make check-integration
+```
+
+This builds `.venv-rbx` if needed, then runs the integration suite. Tests
+that need an `rbx` feature missing from the pinned version (e.g. `rbx vars`
+before it existed) skip rather than fail.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

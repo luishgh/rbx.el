@@ -9,7 +9,8 @@ ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el rbx-evil.el
 # #!/bin/sh script, which fails where no /bin/sh exists (see guix.scm).
 ERT_SELECTOR ?= t
 
-.PHONY: test compile checkdoc package-lint check clean rbx-venv
+.PHONY: test compile checkdoc package-lint check clean rbx-venv \
+        test-integration check-integration
 
 test:
 	$(BATCH) -l test/test-helper.el \
@@ -48,3 +49,14 @@ rbx-venv: .venv-rbx/bin/rbx
 	$(PYTHON) -m venv .venv-rbx
 	.venv-rbx/bin/pip install --require-hashes -r rbx-requirements.txt
 	touch $@
+
+# Runs rbx.el's tolerant readers against a real rbx's actual on-disk
+# artifacts, rather than fixture packages, to catch drift between them.
+# Not part of `check`: it needs `.venv-rbx' (see `rbx-venv' above) and is
+# slower and less hermetic than the fixture-based suite.
+test-integration: rbx-venv
+	$(BATCH) -l test/test-helper.el \
+	  -l test/rbx-integration-test.el \
+	  --eval "(ert-run-tests-batch-and-exit t)"
+
+check-integration: test-integration
