@@ -137,9 +137,15 @@ See `rbx-run-process' for the arguments' meaning.  Return
       (accept-process-output nil 0.05))
     result))
 
-(defun rbx--command-available-p (command root)
-  "Return non-nil when COMMAND exits zero on `--version' in ROOT."
-  (eql (nth 2 (rbx--run-process-sync root command '("--version") nil 5)) 0))
+(defun rbx--command-available-p (command root &optional version-predicate)
+  "Return non-nil when COMMAND exits zero on `--version' in ROOT.
+
+When VERSION-PREDICATE is non-nil, it must also return non-nil when
+called with the `--version' output."
+  (pcase-let ((`(,stdout ,_stderr ,exit-code)
+               (rbx--run-process-sync root command '("--version") nil 5)))
+    (and (eql exit-code 0)
+         (or (null version-predicate) (funcall version-predicate stdout)))))
 
 (defun rbx--login-shell-path (name root)
   "Return the absolute path a login shell resolves NAME to in ROOT, or nil.
@@ -192,22 +198,31 @@ itself is ever tried via a login shell."
      (list (cons configured 'path)))
    (list (cons fallback 'path) (cons fallback 'login-shell))))
 
-(defun rbx--resolve-candidate (command source root)
-  "Return COMMAND if it is usable via SOURCE in ROOT, or nil."
+(defun rbx--resolve-candidate (command source root &optional version-predicate)
+  "Return COMMAND if it is usable via SOURCE in ROOT, or nil.
+
+A command found on `exec-path' is returned as an absolute file name: that
+variable may be buffer-local (as envrc.el makes it), and the caller can
+end up running the result from another buffer.  VERSION-PREDICATE is
+passed to `rbx--command-available-p'."
   (pcase source
     ('login-shell
      (let ((path (rbx--login-shell-path command root)))
-       (and path (rbx--command-available-p path root) path)))
-    (_ (and (rbx--command-available-p command root) command))))
+       (and path (rbx--command-available-p path root version-predicate)
+            path)))
+    (_ (and (rbx--command-available-p command root version-predicate)
+            (or (executable-find command) command)))))
 
-(defun rbx-resolve-executable (configured fallback &optional root)
+(defun rbx-resolve-executable (configured fallback &optional root
+                                           version-predicate)
   "Resolve the executable to run for FALLBACK (e.g. \"yq\" or \"rbx\").
 
 CONFIGURED is the user's customized program name or path.  Tries
 CONFIGURED, then FALLBACK on the process `PATH', then FALLBACK via a login
 shell -- a GUI Emacs's PATH does not necessarily match the user's shell.
-Resolution, including a total failure, is cached per FALLBACK and ROOT
-\(which defaults to `default-directory')."
+A candidate is rejected unless VERSION-PREDICATE, when non-nil, accepts
+its `--version' output.  Resolution, including a total failure, is cached
+per FALLBACK and ROOT \(which defaults to `default-directory')."
   (let* ((root (or root default-directory))
          (key (cons fallback root))
          (cached (gethash key rbx--executable-cache rbx--executable-unresolved)))
@@ -216,11 +231,19 @@ Resolution, including a total failure, is cached per FALLBACK and ROOT
       (let ((resolved
              (seq-some
               (lambda (candidate)
-                (rbx--resolve-candidate (car candidate) (cdr candidate) root))
+                (rbx--resolve-candidate (car candidate) (cdr candidate) root
+                                        version-predicate))
               (rbx--executable-candidates configured fallback))))
         (puthash key (or resolved rbx--executable-unavailable)
                 rbx--executable-cache)
         resolved))))
+
+(defun rbx--yq-version-supported-p (version)
+  "Return non-nil when VERSION is `yq --version' output from mikefarah/yq.
+
+The Python jq wrapper also installs a `yq' command, but it accepts none
+of the flags `rbx-read-yaml' passes."
+  (string-match-p "mikefarah" version))
 
 (defun rbx-read-yaml (path)
   "Convert YAML at PATH with `rbx-yq-program' and read its JSON.
@@ -232,15 +255,17 @@ one-time `display-warning', when `rbx-yq-program' cannot be resolved at
 all -- see `rbx-resolve-executable'."
   (condition-case nil
       (when (file-readable-p path)
-        (let ((program (rbx-resolve-executable rbx-yq-program "yq")))
+        (let ((program (rbx-resolve-executable rbx-yq-program "yq" nil
+                                               #'rbx--yq-version-supported-p)))
           (if (null program)
               (progn
                 (rbx--warn-once
                  'yq
                  (format
-                  "rbx.el could not find yq (checked `rbx-yq-program' (%s), \
-PATH, and a login shell); YAML artifacts cannot be read until it is \
-installed or `rbx-yq-program' is set."
+                  "rbx.el could not find mikefarah/yq (checked \
+`rbx-yq-program' (%s), PATH, and a login shell; the Python jq wrapper \
+also named yq is not supported); YAML artifacts cannot be read until it \
+is installed or `rbx-yq-program' is set."
                   rbx-yq-program))
                 nil)
             (with-temp-buffer

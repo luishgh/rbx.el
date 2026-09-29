@@ -19,7 +19,7 @@
     (let ((path (rbx-test-write root "artifact.yml" "ignored: by stub\n"))
           invocation)
       (cl-letf (((symbol-function 'rbx-resolve-executable)
-                 (lambda (configured _fallback) configured))
+                 (lambda (configured _fallback &rest _) configured))
                 ((symbol-function 'process-file)
                  (lambda (program input destination display &rest arguments)
                    (setq invocation
@@ -41,7 +41,7 @@
     (let ((path (rbx-test-write root "artifact.yml"
                                 "still: being-written\n")))
       (cl-letf (((symbol-function 'rbx-resolve-executable)
-                 (lambda (configured _fallback) configured))
+                 (lambda (configured _fallback &rest _) configured))
                 ((symbol-function 'process-file)
                  (lambda (&rest _arguments)
                    (insert "conversion failed")
@@ -280,7 +280,7 @@
   (rbx-test-with-directory root
     (let (tried)
       (cl-letf (((symbol-function 'rbx--command-available-p)
-                (lambda (command _root)
+                (lambda (command _root &rest _)
                   (push command tried)
                   (equal command "found-on-login-shell")))
                ((symbol-function 'rbx--login-shell-path)
@@ -293,7 +293,7 @@
 (ert-deftest rbx-resolve-executable-skips-configured-when-same-as-fallback ()
   (rbx-test-with-directory root
     (cl-letf (((symbol-function 'rbx--command-available-p)
-              (lambda (command _root) (equal command "fallback"))))
+              (lambda (command _root &rest _) (equal command "fallback"))))
       (should (equal (rbx-resolve-executable "fallback" "fallback" root)
                     "fallback")))))
 
@@ -318,6 +318,59 @@
         (let ((after-first calls))
           (should-not (rbx-resolve-executable nil "fallback" root))
           (should (= calls after-first)))))))
+
+;; envrc.el and similar packages make `exec-path' buffer-local; a bare
+;; command name resolved there must not be re-resolved elsewhere.
+(ert-deftest rbx-resolve-executable-returns-the-absolute-path-it-found ()
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fallback" "exit 0\n")))
+      (cl-letf (((symbol-function 'rbx--command-available-p)
+                 (lambda (&rest _args) t)))
+        (with-temp-buffer
+          (setq-local exec-path (list root))
+          (should (equal (rbx-resolve-executable nil "fallback" root)
+                         program)))))))
+
+(ert-deftest rbx-read-yaml-runs-the-yq-found-in-the-calling-buffer ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "artifact.yml" "ignored: by stub\n"))
+          (bin (file-name-directory
+                (rbx-test-write-executable
+                 (progn (make-directory (expand-file-name "bin" root))
+                        (expand-file-name "bin" root))
+                 "yq"
+                 "case \"$1\" in --version) echo 'yq (https://github.com/mikefarah/yq/) version v4.0.0';; *) echo '{\"answer\":42}';; esac\n"))))
+      (rbx-reset-executables)
+      (unwind-protect
+          (with-temp-buffer
+            (setq default-directory (file-name-as-directory root))
+            (setq-local exec-path (cons bin (default-value 'exec-path)))
+            (let ((rbx-yq-program "yq"))
+              (should (equal (rbx--wire-field (rbx-read-yaml path) "answer")
+                             42))))
+        (rbx-reset-executables)))))
+
+(ert-deftest rbx-resolve-executable-rejects-candidates-failing-the-version-check ()
+  (rbx-test-with-directory root
+    (let (tried)
+      (cl-letf (((symbol-function 'rbx--run-process-sync)
+                 (lambda (_root command _args _input &optional _timeout)
+                   (push command tried)
+                   (list (if (equal command "good") "right flavor" "wrong")
+                         "" 0)))
+                ((symbol-function 'rbx--login-shell-path)
+                 (lambda (_name _root) "good")))
+        (should (equal (rbx-resolve-executable
+                        "configured" "fallback" root
+                        (lambda (version) (string-match-p "right" version)))
+                       "good"))
+        (should (equal (nreverse tried) '("configured" "fallback" "good")))))))
+
+(ert-deftest rbx-yq-version-supported-p-accepts-only-mikefarah-yq ()
+  (should (rbx--yq-version-supported-p
+           "yq (https://github.com/mikefarah/yq/) version v4.53.3\n"))
+  (should-not (rbx--yq-version-supported-p "yq 3.4.3\n")))
 
 (ert-deftest rbx-reset-executables-clears-the-cache ()
   (rbx-test-with-directory root
