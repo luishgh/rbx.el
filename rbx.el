@@ -207,6 +207,19 @@ a wrong one."
     (rbx-stop-watcher rbx--artifact-watcher)
     (setq rbx--artifact-watcher nil)))
 
+(defun rbx--missing-dependency ()
+  "Return why `rbx-mode' cannot run in this buffer, or nil when it can.
+
+Only a buffer inside a package needs yq; the manifest is located without
+reading it, since reading YAML is exactly what needs yq."
+  (when (locate-dominating-file
+         (or (and buffer-file-name (file-name-directory buffer-file-name))
+             default-directory)
+         rbx-problem-manifest)
+    (condition-case err
+        (progn (rbx-ensure-yq) nil)
+      (user-error (error-message-string err)))))
+
 (defun rbx--start-artifact-watcher ()
   "Start or replace the current buffer's artifact watcher."
   (rbx--stop-artifact-watcher)
@@ -237,12 +250,22 @@ The mode binds `C-c r' to `rbx-dispatch'.  When
 `rbx-compilation-diagnostics' is non-nil, it also makes findings from the most
 recent run available to Flymake.  When `rbx-statement-var-hints' is non-nil
 and this file is one of the package's declared statements, it shows what
-each `\\VAR{...}' reference resolves to."
+each `\\VAR{...}' reference resolves to.
+
+Inside a package the mode needs mikefarah/yq; without it the mode stays
+off, warning once when enabled from a hook."
   :lighter " rbx"
   :keymap rbx-mode-map
   :group 'rbx
   (if rbx-mode
-      (progn
+      (if-let ((problem (rbx--missing-dependency)))
+          (progn
+            (setq rbx-mode nil)
+            ;; From a major-mode hook, warn instead of aborting the user's
+            ;; other hooks and the file visit itself.
+            (if (called-interactively-p 'any)
+                (user-error "%s" problem)
+              (rbx--warn-once 'yq problem)))
         (when rbx-compilation-diagnostics
           (add-hook 'flymake-diagnostic-functions #'rbx-flymake-backend nil t))
         (when (or rbx-compilation-diagnostics rbx-statement-var-hints)

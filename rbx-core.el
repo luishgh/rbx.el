@@ -127,14 +127,50 @@ started or timed out after TIMEOUT seconds (default 10)."
   "Run PROGRAM synchronously in ROOT with ARGS and INPUT.
 
 See `rbx-run-process' for the arguments' meaning.  Return
-\(STDOUT STDERR EXIT-CODE), blocking the caller until it settles."
-  (let (result)
-    (rbx-run-process root program args input
-                     (lambda (stdout stderr exit-code)
-                       (setq result (list stdout stderr exit-code)))
-                     timeout)
-    (while (not result)
-      (accept-process-output nil 0.05))
+\(STDOUT STDERR EXIT-CODE), blocking the caller until it settles.
+
+Only this process's output is read while waiting: no timers or other
+process sentinels run, since those can re-enter rbx.el (a debounced
+refresh reading YAML would start a nested executable resolution)."
+  (let ((stdout-buffer (generate-new-buffer " *rbx-sync-stdout*"))
+        (stderr-buffer (generate-new-buffer " *rbx-sync-stderr*"))
+        (deadline (+ (float-time) (or timeout 10)))
+        exit-code process stderr result)
+    (unwind-protect
+        (progn
+          (condition-case nil
+              (let ((default-directory (file-name-as-directory root)))
+                (setq stderr (make-pipe-process :name "rbx-sync-stderr"
+                                                :buffer stderr-buffer
+                                                :noquery t
+                                                :sentinel #'ignore))
+                (setq process (make-process
+                               :name "rbx-sync-process"
+                               :buffer stdout-buffer
+                               :stderr stderr
+                               :command (cons program args)
+                               :noquery t
+                               :sentinel #'ignore))
+                (when input (process-send-string process input))
+                (process-send-eof process)
+                ;; An integer JUST-THIS-ONE also keeps timers from running.
+                (while (and (process-live-p process)
+                            (< (float-time) deadline))
+                  (accept-process-output process 0.05 nil 1))
+                (unless (process-live-p process)
+                  (while (accept-process-output process 0 nil 1))
+                  (while (accept-process-output stderr 0 nil 1))
+                  (setq exit-code (process-exit-status process))))
+            (error nil))
+          (setq result
+                (list (with-current-buffer stdout-buffer (buffer-string))
+                      (with-current-buffer stderr-buffer (buffer-string))
+                      exit-code)))
+      (when (and process (process-live-p process))
+        (delete-process process))
+      (when stderr (delete-process stderr))
+      (kill-buffer stdout-buffer)
+      (kill-buffer stderr-buffer))
     result))
 
 (defun rbx--command-available-p (command root &optional version-predicate)
@@ -245,42 +281,55 @@ The Python jq wrapper also installs a `yq' command, but it accepts none
 of the flags `rbx-read-yaml' passes."
   (string-match-p "mikefarah" version))
 
+(defun rbx--resolve-yq (&optional root)
+  "Return the mikefarah/yq program to run in ROOT, or nil."
+  (rbx-resolve-executable rbx-yq-program "yq" root
+                          #'rbx--yq-version-supported-p))
+
+(defun rbx--yq-unavailable-message ()
+  "Explain why no usable yq was found, naming a wrong-flavor one on PATH."
+  (let ((wrong (executable-find (if (string-empty-p (or rbx-yq-program ""))
+                                    "yq"
+                                  rbx-yq-program))))
+    (concat
+     (if wrong
+         (format "rbx.el needs mikefarah/yq, but %s is not mikefarah/yq \
+\(likely the Python jq wrapper, also named yq)." wrong)
+       (format "rbx.el needs mikefarah/yq, which was not found (checked \
+`rbx-yq-program' (%s), PATH, and a login shell)." rbx-yq-program))
+     "  Install it or set `rbx-yq-program', then run \
+`M-x rbx-reset-executables'.")))
+
+(defun rbx-ensure-yq (&optional root)
+  "Return the mikefarah/yq program to run in ROOT, or signal `user-error'.
+
+ROOT defaults to `default-directory'.  rbx.el cannot read any artifact
+without yq, so every entry point calls this before starting anything."
+  (or (rbx--resolve-yq root)
+      (user-error "%s" (rbx--yq-unavailable-message))))
+
 (defun rbx-read-yaml (path)
   "Convert YAML at PATH with `rbx-yq-program' and read its JSON.
 
 Return nil when PATH is missing, unreadable, empty, or temporarily invalid.
 This tolerance is important because artifact files can be observed between a
-truncate and the completing rename or write.  Also returns nil, after a
-one-time `display-warning', when `rbx-yq-program' cannot be resolved at
-all -- see `rbx-resolve-executable'."
+truncate and the completing rename or write.  Also returns nil when no
+usable yq can be resolved; entry points report that via `rbx-ensure-yq'."
   (condition-case nil
-      (when (file-readable-p path)
-        (let ((program (rbx-resolve-executable rbx-yq-program "yq" nil
-                                               #'rbx--yq-version-supported-p)))
-          (if (null program)
-              (progn
-                (rbx--warn-once
-                 'yq
-                 (format
-                  "rbx.el could not find mikefarah/yq (checked \
-`rbx-yq-program' (%s), PATH, and a login shell; the Python jq wrapper \
-also named yq is not supported); YAML artifacts cannot be read until it \
-is installed or `rbx-yq-program' is set."
-                  rbx-yq-program))
-                nil)
-            (with-temp-buffer
-              (when (zerop
-                     (process-file program nil t nil
-                                   "--input-format=yaml"
-                                   "--output-format=json"
-                                   "--no-colors" "--indent=0"
-                                   "." (expand-file-name path)))
-                (goto-char (point-min))
-                (unless (eobp)
-                  (json-parse-buffer :object-type 'alist
-                                     :array-type 'list
-                                     :null-object nil
-                                     :false-object :false)))))))
+      (when-let ((program (and (file-readable-p path) (rbx--resolve-yq))))
+        (with-temp-buffer
+          (when (zerop
+                 (process-file program nil t nil
+                               "--input-format=yaml"
+                               "--output-format=json"
+                               "--no-colors" "--indent=0"
+                               "." (expand-file-name path)))
+            (goto-char (point-min))
+            (unless (eobp)
+              (json-parse-buffer :object-type 'alist
+                                 :array-type 'list
+                                 :null-object nil
+                                 :false-object :false)))))
     (error nil)))
 
 (defun rbx--wire-mapping-p (value)

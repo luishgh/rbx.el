@@ -56,6 +56,12 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Refuse to start without mikefarah/yq instead of recursing: a wrong or
+  missing `yq` made executable probes re-enter through timers and process
+  sentinels until Lisp nesting was exhausted.  Views now fail with a
+  `user-error` naming the offending `yq`, and `rbx-mode` stays off inside a
+  package (warning once when enabled from a hook).  Synchronous probes no
+  longer run timers or other sentinels while waiting.
 - Cache unchanged parsed artifacts and defer testcase evaluation parsing until
   its collapsed run group is expanded, substantially reducing run-view latency.
 - Route run-view verdict styling through Magit Section's font-lock face

@@ -44,6 +44,60 @@
     (rbx-mode -1)
     (should-not (memq #'rbx-flymake-backend flymake-diagnostic-functions))))
 
+(ert-deftest rbx-mode-refuses-to-enable-from-a-hook-without-yq ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "sols/main.cpp" "int main() {}\n"))
+          (warnings nil)
+          (watched nil))
+      (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+      (rbx-reset-executables)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-resolve-executable)
+                       (lambda (&rest _args) nil))
+                      ((symbol-function 'rbx-watch-package)
+                       (lambda (&rest _args) (setq watched t) 'watcher))
+                      ((symbol-function 'display-warning)
+                       (lambda (_type message &rest _args)
+                         (push message warnings))))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (rbx-mode 1)
+                (should-not rbx-mode)
+                (should-not watched)
+                (should-not (memq #'rbx-flymake-backend
+                                  flymake-diagnostic-functions))
+                (should (= (length warnings) 1))
+                (should (string-match-p "mikefarah/yq" (car warnings)))))
+          (rbx-reset-executables)
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-signals-when-enabled-interactively-without-yq ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "sols/main.cpp" "int main() {}\n")))
+      (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-resolve-executable)
+                       (lambda (&rest _args) nil)))
+              (with-current-buffer buffer
+                (should-error (call-interactively #'rbx-mode)
+                              :type 'user-error)
+                (should-not rbx-mode)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-does-not-check-yq-outside-a-package ()
+  (rbx-test-with-directory root
+    (let ((checked nil))
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                 (lambda (&rest _args) (setq checked t) nil)))
+        (with-temp-buffer
+          (setq default-directory (file-name-as-directory root))
+          (rbx-mode 1)
+          (should rbx-mode)
+          (should-not checked)
+          (rbx-mode -1))))))
+
 (ert-deftest rbx-mode-refreshes-diagnostics-after-artifact-changes ()
   (rbx-test-with-directory root
     (let ((source (rbx-test-write root "sols/main.cpp" "int main() {}\n"))

@@ -247,6 +247,44 @@
       (should (equal (rbx--run-process-sync root program nil nil)
                      '("hi\n" "" 0))))))
 
+(ert-deftest rbx-run-process-sync-does-not-run-timers ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "sleep 0.3\necho done\n"))
+          (fired nil)
+          timer)
+      (setq timer (run-at-time 0 nil (lambda () (setq fired t))))
+      (unwind-protect
+          (progn
+            (should (equal (rbx--run-process-sync root program nil nil)
+                           '("done\n" "" 0)))
+            (should-not fired))
+        (cancel-timer timer)))))
+
+(ert-deftest rbx-run-process-sync-times-out ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "sleep 5\n"))
+          (start (float-time)))
+      (should-not (nth 2 (rbx--run-process-sync root program nil nil 0.3)))
+      (should (< (- (float-time) start) 2)))))
+
+(ert-deftest rbx-run-process-sync-handles-spawn-error ()
+  (rbx-test-with-directory root
+    (pcase-let ((`(,stdout ,_stderr ,exit-code)
+                 (rbx--run-process-sync
+                  root (expand-file-name "does-not-exist" root) nil nil)))
+      (should (equal stdout ""))
+      (should-not (eql exit-code 0)))))
+
+(ert-deftest rbx-run-process-sync-captures-stderr-and-stdin ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable
+                    root "fake" "cat; echo err >&2; exit 3\n")))
+      (should (equal (rbx--run-process-sync root program nil "in\n")
+                     '("in\n" "err\n" 3))))))
+
 (ert-deftest rbx-command-available-p-true-for-a-working-executable ()
   :tags '(needs-shell)
   (rbx-test-with-directory root
@@ -393,7 +431,7 @@
       (rbx--warn-once 'test-key "message")
       (should (= calls 2)))))
 
-(ert-deftest rbx-read-yaml-warns-once-when-yq-cannot-be-resolved ()
+(ert-deftest rbx-read-yaml-returns-nil-quietly-when-yq-cannot-be-resolved ()
   (rbx-test-with-directory root
     (let ((path (rbx-test-write root "artifact.yml" "a: 1\n"))
           (warnings 0))
@@ -402,8 +440,33 @@
                ((symbol-function 'display-warning)
                 (lambda (&rest _args) (cl-incf warnings))))
         (should-not (rbx-read-yaml path))
-        (should-not (rbx-read-yaml path))
-        (should (= warnings 1))))))
+        (should (= warnings 0))))))
+
+(ert-deftest rbx-ensure-yq-returns-the-resolved-program ()
+  (cl-letf (((symbol-function 'rbx-resolve-executable)
+             (lambda (&rest _args) "/opt/yq")))
+    (should (equal (rbx-ensure-yq) "/opt/yq"))))
+
+(ert-deftest rbx-ensure-yq-signals-user-error-when-yq-is-missing ()
+  (rbx-test-with-directory root
+    (cl-letf (((symbol-function 'rbx-resolve-executable) (lambda (&rest _args) nil)))
+      (with-temp-buffer
+        (setq-local exec-path (list root))
+        (let ((err (should-error (rbx-ensure-yq root) :type 'user-error)))
+          (should (string-match-p "mikefarah/yq" (cadr err)))
+          (should (string-match-p "not found" (cadr err))))))))
+
+(ert-deftest rbx-ensure-yq-names-a-wrong-flavor-yq-it-found ()
+  (rbx-test-with-directory root
+    (let ((wrong (rbx-test-write-executable root "yq" "echo 'yq 3.4.3'\n")))
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                 (lambda (&rest _args) nil)))
+        (with-temp-buffer
+          (setq-local exec-path (list root))
+          (let ((rbx-yq-program "yq")
+                (err (should-error (rbx-ensure-yq root) :type 'user-error)))
+            (should (string-match-p (regexp-quote wrong) (cadr err)))
+            (should (string-match-p "not mikefarah/yq" (cadr err)))))))))
 
 (provide 'rbx-core-test)
 ;;; rbx-core-test.el ends here

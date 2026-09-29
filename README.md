@@ -60,7 +60,10 @@ extension calls them the same way.
 - Emacs 30.1 or newer (developed and tested on Emacs 30.2)
 - Magit Section 4.1.0 or newer (tested with 4.6.0)
 - Transient 0.7.5 or newer (tested with 0.13.5)
-- yq 4.x (tested with 4.53.3)
+- [mikefarah/yq](https://github.com/mikefarah/yq) 4.x (tested with 4.53.3).
+  The Python jq wrapper also installs a `yq` command but is not supported.
+  Without a usable yq rbx.el cannot read anything, so its views refuse to
+  open and `rbx-mode` stays off inside packages until one is found.
 
 The Emacs dependencies are available from GNU ELPA/nonGNU ELPA. All
 dependencies, including `yq`, are declared in `manifest.scm` for Guix users.
@@ -179,8 +182,10 @@ nothing, never a guess.
   (`$SHELL -lic "command -v rbx"`) — useful when Emacs was launched from a
   desktop icon rather than a terminal. A total failure to find it is
   reported once via `display-warning`, not silently.
-- `rbx-yq-program`: path to the `yq` executable used to read YAML
-  artifacts, resolved and reported the same way as `rbx-program`.
+- `rbx-yq-program`: path to the mikefarah/yq executable used to read YAML
+  artifacts, resolved the same way as `rbx-program`.  If none is found,
+  views signal an error and `rbx-mode` stays off; after installing it or
+  changing this option, run `M-x rbx-reset-executables`.
 - `rbx-refresh-delay`: debounce interval for filesystem notifications.
 
 Use `M-x customize-group RET rbx` to edit these settings interactively.

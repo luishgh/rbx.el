@@ -1250,6 +1250,7 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
 
 (defun rbx--select-package (&optional always-prompt)
   "Choose an rbx package, prompting when ALWAYS-PROMPT or ambiguous."
+  (rbx-ensure-yq)
   (let* ((nearby (and (not always-prompt) (rbx-find-package)))
          (packages (if nearby
                        (list nearby)
@@ -1274,6 +1275,7 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
 
 (defun rbx--open-view (view &optional package)
   "Open VIEW for PACKAGE."
+  (rbx-ensure-yq)
   (let* ((selected (or package (rbx--select-package)))
          (label (rbx--package-heading-label
                  selected (file-name-nondirectory
@@ -1318,6 +1320,7 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
 CONTEST-ROOT defaults to the contest owning the package shown in the
 current view, or the nearest contest to `default-directory'."
   (interactive)
+  (rbx-ensure-yq)
   (let* ((root (or contest-root
                    (rbx-find-contest-root
                     (if rbx--package

@@ -331,6 +331,22 @@
            :package-path (expand-file-name "missing" root)))
      :type 'user-error)))
 
+(ert-deftest rbx-views-error-without-yq-before-opening-anything ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build"))
+          (buffers (buffer-list)))
+      (cl-letf (((symbol-function 'rbx-resolve-executable)
+                 (lambda (&rest _args) nil)))
+        (let ((default-directory (file-name-as-directory root)))
+          (should-error (rbx-run-view) :type 'user-error)
+          (should-error (rbx-run-view package) :type 'user-error)
+          (should-error (rbx-testset-view package) :type 'user-error)
+          (should-error (rbx-visualization-gallery package) :type 'user-error)
+          (should-error (rbx-contest-view root) :type 'user-error)))
+      (should (equal (buffer-list) buffers)))))
+
 (ert-deftest rbx-contest-view-errors-without-a-contest-manifest ()
   (rbx-test-with-directory root
     (cl-letf (((symbol-function 'rbx-find-contest-root)
