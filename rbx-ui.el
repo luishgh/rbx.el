@@ -532,8 +532,8 @@ STATE is one of `rbx--row-state's values."
                      (rbx-group-report-matches-expectation group-report)
                      warning)
                     group
-                    (if-let ((expected
-                              (rbx-group-report-expected-outcome group-report)))
+                    (if-let* ((expected
+                               (rbx-group-report-expected-outcome group-report)))
                         (format "declared %s → got %s"
                                 (rbx--expected expected)
                                 (rbx--actual
@@ -639,7 +639,7 @@ STATE is one of `rbx--row-state's values."
                       (rbx--fontify (rbx-compilation-path finding)
                                     (rbx--expected-face-value expected))
                       (rbx--expected expected)
-                      (if-let ((reason (rbx-compilation-reason finding)))
+                      (if-let* ((reason (rbx-compilation-reason finding)))
                           (concat "  " reason) ""))
               (if failed 'missed 'warned)))
             (dolist (warning (rbx-compilation-warnings finding))
@@ -649,14 +649,14 @@ STATE is one of `rbx--row-state's values."
                 (magit-insert-heading
                  (format "    %d%s  %s\n"
                          (rbx-warning-line warning)
-                         (if-let ((flag (rbx-warning-flag warning)))
+                         (if-let* ((flag (rbx-warning-flag warning)))
                              (concat " · " flag) "")
                          (rbx-warning-message warning)))))))))))
 
 (defun rbx--insert-run-view (package)
   "Insert PACKAGE's run view at point."
   (rbx--clear-fringe-overlays)
-  (if-let ((skeleton (rbx-load-skeleton package)))
+  (if-let* ((skeleton (rbx-load-skeleton package)))
       (let ((report (rbx-load-report package))
             (groups (rbx-skeleton-ordered-groups skeleton))
             (entries-by-group
@@ -873,9 +873,9 @@ when there is no generator script.  Returns the buffer now visiting it."
             (rbx-coverage-section (list :kind 'coverage :bounds group))
           (magit-insert-heading (format "  %s%s\n"
                                         (rbx-group-bounds-group group)
-                                        (if-let ((validator
-                                                  (rbx-group-bounds-validator
-                                                   group)))
+                                        (if-let* ((validator
+                                                   (rbx-group-bounds-validator
+                                                    group)))
                                             (format " · %s" validator) "")))
           (dolist (item (rbx-group-bounds-bounds group))
             (insert
@@ -899,7 +899,7 @@ when there is no generator script.  Returns the buffer now visiting it."
 
 (defun rbx--insert-testset-statistics (testset)
   "Insert aggregate size and count statistics for TESTSET."
-  (when-let ((stats (rbx-testset-statistics testset)))
+  (when-let* ((stats (rbx-testset-statistics testset)))
     (let* ((total-count
            (apply #'+ (mapcar #'rbx-testset-group-stats-count stats)))
           (total-input
@@ -934,14 +934,14 @@ when there is no generator script.  Returns the buffer now visiting it."
 
 (defun rbx--insert-testset-view (package)
   "Insert PACKAGE's testset view at point."
-  (if-let ((testset (rbx-load-testset package)))
+  (if-let* ((testset (rbx-load-testset package)))
       (magit-insert-section
           (rbx-root-section (list :kind 'root :package package))
         (magit-insert-heading
          (format "Tests · %s%s\n"
                  (rbx--package-heading-label
                   package (abbreviate-file-name (rbx-package-root package)))
-                 (if-let ((task-type (rbx-testset-task-type testset)))
+                 (if-let* ((task-type (rbx-testset-task-type testset)))
                      (format " · %s" task-type) "")))
         (dolist (group (rbx-testset-ordered-groups testset))
           (let ((testcases (rbx--testset-cases-for-group testset group)))
@@ -1018,7 +1018,7 @@ TESTSET."
 
 (defun rbx--insert-gallery-view (package)
   "Insert PACKAGE's visualization gallery at point."
-  (if-let ((testset (rbx-load-testset package)))
+  (if-let* ((testset (rbx-load-testset package)))
       (magit-insert-section
           (rbx-root-section (list :kind 'root :package package))
         (magit-insert-heading
@@ -1111,9 +1111,9 @@ selection a terminal invocation used."
 (defun rbx--contest-follow-candidates ()
   "Return the run view's contest member packages, or nil outside a contest."
   (when-let* ((membership (and rbx--package
-                              (rbx-package-contest-membership rbx--package)))
-             (root (rbx-contest-membership-root membership))
-             (contest (rbx-contest-membership-contest membership)))
+                               (rbx-package-contest-membership rbx--package)))
+              (root (rbx-contest-membership-root membership))
+              (contest (rbx-contest-membership-contest membership)))
     (delq nil
           (mapcar
            (lambda (problem)
@@ -1129,9 +1129,9 @@ selection a terminal invocation used."
      (delq nil
           (mapcar
            (lambda (package)
-             (when-let ((mtime (file-attribute-modification-time
-                                (file-attributes
-                                 (rbx-skeleton-path package)))))
+             (when-let* ((mtime (file-attribute-modification-time
+                                 (file-attributes
+                                  (rbx-skeleton-path package)))))
                (cons package mtime)))
            packages))
      (lambda (a b) (time-less-p (cdr b) (cdr a)))))))
@@ -1151,7 +1151,7 @@ selection a terminal invocation used."
           (lambda (_package)
             (when (buffer-live-p buffer)
               (with-current-buffer buffer
-                (when-let ((latest (rbx--most-recently-touched candidates)))
+                (when-let* ((latest (rbx--most-recently-touched candidates)))
                   (unless (equal latest rbx--package)
                     (setq rbx--package latest)
                     (rbx--start-buffer-watcher)))
@@ -1176,7 +1176,7 @@ artifacts."
 
 (defun rbx--project-root ()
   "Return the current project root or `default-directory'."
-  (if-let ((project (project-current nil)))
+  (if-let* ((project (project-current nil)))
       (project-root project)
     default-directory))
 
@@ -1186,8 +1186,8 @@ artifacts."
 Accepts the hex forms rbx itself accepts (`#abc' and `#abcdef') verbatim, and
 falls back to Emacs's own color resolution for X11 color names.  Returns nil
 when PROBLEM has no color or it cannot be resolved."
-  (when-let ((color (or (rbx-contest-problem-color problem)
-                        (rbx-contest-problem-color-name problem))))
+  (when-let* ((color (or (rbx-contest-problem-color problem)
+                         (rbx-contest-problem-color-name problem))))
     (cond
      ((string-match
        "\\`#\\([0-9a-fA-F]\\)\\([0-9a-fA-F]\\)\\([0-9a-fA-F]\\)\\'" color)
@@ -1195,7 +1195,7 @@ when PROBLEM has no color or it cannot be resolved."
                                           (concat digit digit)))
                              '(1 2 3) "")))
      ((string-match-p "\\`#[0-9a-fA-F]\\{6\\}\\'" color) color)
-     (t (when-let ((values (ignore-errors (color-values color))))
+     (t (when-let* ((values (ignore-errors (color-values color))))
          (apply #'format "#%02x%02x%02x"
                 (mapcar (lambda (component) (ash component -8)) values)))))))
 
@@ -1242,7 +1242,7 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
 
 (defun rbx--package-heading-label (package fallback)
   "Return PACKAGE's contest letter/name label, or FALLBACK outside a contest."
-  (if-let ((membership (rbx-package-contest-membership package)))
+  (if-let* ((membership (rbx-package-contest-membership package)))
       (concat (rbx--contest-label (rbx-contest-membership-problem membership))
              " · " (file-name-nondirectory
                     (directory-file-name (rbx-package-root package))))
@@ -1355,7 +1355,7 @@ current view, or the nearest contest to `default-directory'."
 
 (defun rbx--context ()
   "Return the action context of the Magit section at point."
-  (when-let ((section (magit-current-section)))
+  (when-let* ((section (magit-current-section)))
     (oref section value)))
 
 (defun rbx--context-path (context channel)

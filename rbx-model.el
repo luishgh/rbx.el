@@ -146,7 +146,7 @@ declared entry."
 
 (defun rbx--artifact-file-state (path)
   "Return a change-sensitive identity for the artifact at PATH."
-  (when-let ((attributes (ignore-errors (file-attributes path 'string))))
+  (when-let* ((attributes (ignore-errors (file-attributes path 'string))))
     (list (file-attribute-file-identifier attributes)
           (file-attribute-size attributes)
           (file-attribute-modification-time attributes))))
@@ -208,7 +208,7 @@ declared entry."
 
 The generated input basename is authoritative.  A padded index is only the
 fallback used for artifacts old enough not to record that path."
-  (if-let ((path (rbx-testcase-input-path testcase)))
+  (if-let* ((path (rbx-testcase-input-path testcase)))
       (file-name-base path)
     (format "%03d" (rbx-testcase-index testcase))))
 
@@ -278,16 +278,16 @@ fallback used for artifacts old enough not to record that path."
                          :index index)
                         solutions))
       (dolist (entry (rbx--wire-sequence (rbx--model-field raw "entries")))
-        (when-let ((parsed (rbx-parse-testcase-entry entry)))
+        (when-let* ((parsed (rbx-parse-testcase-entry entry)))
           (push parsed entries)))
       (dolist (group (rbx--wire-sequence (rbx--model-field raw "groups")))
-        (when-let ((name (rbx--model-string group "name")))
+        (when-let* ((name (rbx--model-string group "name")))
           (push (rbx-group-create :name name
                                   :score (rbx--model-number group "score"))
                 groups)))
       (dolist (finding (rbx--wire-sequence
                         (rbx--model-field raw "compilation")))
-        (when-let ((parsed (rbx--parse-compilation finding)))
+        (when-let* ((parsed (rbx--parse-compilation finding)))
           (push parsed compilation)))
       (rbx-skeleton-create
        :solutions (nreverse solutions)
@@ -311,7 +311,7 @@ fallback used for artifacts old enough not to record that path."
 
 (defun rbx--parse-group-report (raw)
   "Parse RAW as a group aggregate, or return nil."
-  (when-let ((name (rbx--model-string raw "name")))
+  (when-let* ((name (rbx--model-string raw "name")))
     (rbx-group-report-create
      :name name
      :outcome (rbx--model-string raw "outcome")
@@ -387,7 +387,7 @@ verdict is not."
 
 (defun rbx--parse-testset-group (raw)
   "Parse RAW as a testset group, or return nil."
-  (when-let ((name (rbx--model-string raw "name")))
+  (when-let* ((name (rbx--model-string raw "name")))
     (rbx-testset-group-create
      :name name
      :score (rbx--model-number raw "score")
@@ -443,11 +443,11 @@ verdict is not."
 
 (defun rbx--parse-group-bounds (raw)
   "Parse RAW as one group's constraint coverage, or return nil."
-  (when-let ((group (rbx--model-string raw "group")))
+  (when-let* ((group (rbx--model-string raw "group")))
     (let (bounds)
       (dolist (item (rbx--wire-mapping-entries
                      (rbx--model-field raw "bounds")))
-        (when-let ((parsed (rbx--parse-variable-bounds (cdr item))))
+        (when-let* ((parsed (rbx--parse-variable-bounds (cdr item))))
           (push (cons (car item) parsed) bounds)))
       (rbx-group-bounds-create
        :group group
@@ -481,7 +481,7 @@ verdict is not."
 
 (defun rbx--parse-contest-problem (raw)
   "Parse RAW as a contest problem entry, or return nil."
-  (when-let ((short-name (rbx--model-string raw "short_name")))
+  (when-let* ((short-name (rbx--model-string raw "short_name")))
     (rbx-contest-problem-create
      :short-name short-name
      :aliases (rbx--model-strings raw "aliases")
@@ -511,7 +511,7 @@ Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
 
 (defun rbx--parse-problem-statement (raw)
   "Parse RAW as a problem statement entry, or return nil."
-  (when-let ((file (rbx--model-string raw "file")))
+  (when-let* ((file (rbx--model-string raw "file")))
     (rbx-problem-statement-create
      :language (rbx--model-string raw "language")
      :title (rbx--model-string raw "title")
@@ -621,7 +621,7 @@ no testcases is omitted."
 
 (defun rbx-package-statement-p (package file)
   "Return non-nil when FILE is one of PACKAGE's declared statement files."
-  (when-let ((statements (rbx-load-problem-statements package)))
+  (when-let* ((statements (rbx-load-problem-statements package)))
     (seq-some
      (lambda (statement)
        (rbx--same-file-p
@@ -631,7 +631,7 @@ no testcases is omitted."
 
 (defun rbx-load-contest (path &optional variant-id)
   "Read the contest manifest at PATH, tagging it with VARIANT-ID."
-  (when-let ((contest (rbx--load-artifact path #'rbx-parse-contest)))
+  (when-let* ((contest (rbx--load-artifact path #'rbx-parse-contest)))
     (setf (rbx-contest-variant-id contest) variant-id)
     (setf (rbx-contest-source-path contest) (expand-file-name path))
     contest))
@@ -641,7 +641,7 @@ no testcases is omitted."
 
 When PACKAGE's directory is listed by more than one contest variant, the
 canonical variant wins; otherwise the first variant that lists it does."
-  (when-let ((root (rbx-find-contest-root (rbx-package-root package))))
+  (when-let* ((root (rbx-find-contest-root (rbx-package-root package))))
     (catch 'rbx-contest-membership
       (dolist (contest (rbx-load-contest-variants root))
         (dolist (problem (rbx-contest-problems contest))

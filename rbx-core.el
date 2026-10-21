@@ -316,7 +316,7 @@ This tolerance is important because artifact files can be observed between a
 truncate and the completing rename or write.  Also returns nil when no
 usable yq can be resolved; entry points report that via `rbx-ensure-yq'."
   (condition-case nil
-      (when-let ((program (and (file-readable-p path) (rbx--resolve-yq))))
+      (when-let* ((program (and (file-readable-p path) (rbx--resolve-yq))))
         (with-temp-buffer
           (when (zerop
                  (process-file program nil t nil
@@ -345,7 +345,7 @@ usable yq can be resolved; entry points report that via `rbx-ensure-yq'."
 (defun rbx--wire-get (mapping key &optional default)
   "Read KEY from MAPPING, returning DEFAULT when it is absent."
   (if (rbx--wire-mapping-p mapping)
-      (if-let ((item (assoc-string key mapping)))
+      (if-let* ((item (assoc-string key mapping)))
           (cdr item)
         default)
     default))
@@ -624,7 +624,7 @@ on a different host from the one that produced them."
 (defun rbx--watcher-notify (watcher event)
   "Schedule WATCHER's callback in response to EVENT."
   (when (rbx--artifact-event-p event)
-    (when-let ((timer (rbx-watcher-timer watcher)))
+    (when-let* ((timer (rbx-watcher-timer watcher)))
       (cancel-timer timer))
     (setf (rbx-watcher-timer watcher)
           (run-at-time
@@ -665,7 +665,7 @@ Returns a list of watchers that must eventually each be passed to
 (defun rbx-stop-watcher (watcher)
   "Stop WATCHER and cancel its pending refresh."
   (when watcher
-    (when-let ((timer (rbx-watcher-timer watcher)))
+    (when-let* ((timer (rbx-watcher-timer watcher)))
       (cancel-timer timer)
       (setf (rbx-watcher-timer watcher) nil))
     (dolist (descriptor (rbx-watcher-descriptors watcher))

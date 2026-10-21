@@ -192,7 +192,7 @@ unresolvable name, or an unusable filter pipeline -- is silently dropped."
               (inner (string-trim (match-string 1))))
           (unless (or (rbx-statement--escaped-p start)
                       (rbx-statement--commented-p start))
-            (when-let ((ref (rbx-statement--build-ref start end inner payload)))
+            (when-let* ((ref (rbx-statement--build-ref start end inner payload)))
               (push ref refs))))))
     (nreverse refs)))
 

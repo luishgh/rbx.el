@@ -95,7 +95,7 @@
   "Report rbx compilation findings using Flymake REPORT-FN."
   (let ((package (and buffer-file-name (rbx-find-package)))
         diagnostics)
-    (when-let ((skeleton (and package (rbx-load-skeleton package))))
+    (when-let* ((skeleton (and package (rbx-load-skeleton package))))
       (dolist (finding (rbx-skeleton-compilation skeleton))
         (let ((finding-file
                (rbx-package-file-path package (rbx-compilation-path finding))))
@@ -120,7 +120,7 @@
 Also nil when `rbx-statement-var-hints' is off or this file is not one of
 the package's declared statements."
   (when (and rbx-statement-var-hints buffer-file-name)
-    (when-let ((package (rbx-find-package)))
+    (when-let* ((package (rbx-find-package)))
       (when (rbx-package-statement-p package buffer-file-name)
         package))))
 
@@ -223,7 +223,7 @@ reading it, since reading YAML is exactly what needs yq."
 (defun rbx--start-artifact-watcher ()
   "Start or replace the current buffer's artifact watcher."
   (rbx--stop-artifact-watcher)
-  (when-let ((package (and buffer-file-name (rbx-find-package))))
+  (when-let* ((package (and buffer-file-name (rbx-find-package))))
     (let ((buffer (current-buffer)))
       (setq rbx--artifact-watcher
             (rbx-watch-package
@@ -258,7 +258,7 @@ off, warning once when enabled from a hook."
   :keymap rbx-mode-map
   :group 'rbx
   (if rbx-mode
-      (if-let ((problem (rbx--missing-dependency)))
+      (if-let* ((problem (rbx--missing-dependency)))
           (progn
             (setq rbx-mode nil)
             ;; From a major-mode hook, warn instead of aborting the user's
