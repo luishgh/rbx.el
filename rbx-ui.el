@@ -1574,13 +1574,18 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
                                 (rbx-testcase-group testcase)
                                 (rbx-testcase-index testcase)))))))
 
+(defconst rbx--visualization-hint
+  "run `rbx build --visualize'; a plain `rbx run' or build deletes them"
+  "Why a testcase may lack visualizations, and how to regenerate them.")
+
 (defun rbx-open-visualization (&optional context)
   "Open the input visualization for the testcase at CONTEXT."
   (interactive)
   (let* ((value (or context (rbx--context)))
          (path (rbx--testset-test-visualization-path
                 (rbx--context-testset-test value) 'input)))
-    (unless path (user-error "No input visualization for this testcase"))
+    (unless path (user-error "No input visualization for this testcase (%s)"
+                            rbx--visualization-hint))
     (rbx--open-visualization-path
      (rbx-package-file-path (plist-get value :package) path))))
 
@@ -1590,7 +1595,8 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
   (let* ((value (or context (rbx--context)))
          (path (rbx--testset-test-visualization-path
                 (rbx--context-testset-test value) 'output)))
-    (unless path (user-error "No answer visualization for this testcase"))
+    (unless path (user-error "No answer visualization for this testcase (%s)"
+                            rbx--visualization-hint))
     (rbx--open-visualization-path
      (rbx-package-file-path (plist-get value :package) path))))
 

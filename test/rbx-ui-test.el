@@ -941,3 +941,206 @@
 
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here
+
+(ert-deftest rbx-open-visualization-ignores-nonstandard-source-names ()
+  ;; rbx copies a user-named sample (samples/dag.in) to NNN.in and records
+  ;; the visualization path in the manifest; the source name must not matter.
+  (rbx-test-with-directory root
+    (let ((image (rbx-test-write
+                  root "build/tests/samples/visualization/000.png" "png")))
+      (rbx-test-write root "samples/dag.in" "3\n")
+      (rbx-test-write
+       root "build/testset.yml"
+       (concat
+        "version: 1\ntask_type: BATCH\ngroups:\n  - name: samples\n"
+        "entries:\n  - group_entry: {group: samples, index: 0}\n"
+        "    metadata:\n"
+        "      copied_from: {inputPath: samples/dag.in}\n"
+        "      copied_to: {inputPath: build/tests/samples/000.in}\n"
+        "tests:\n- group: samples\n  index: 0\n"
+        "  visualization:\n"
+        "    input: build/tests/samples/visualization/000.png\n"))
+      (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                          :build-dir "build"))
+             (testset (rbx-load-testset package))
+             (context (list :kind 'run-testcase :package package
+                            :testcase (rbx-testcase-create
+                                       :group "samples" :index 0
+                                       :input-path
+                                       "build/tests/samples/000.in")))
+             (buffer (rbx-open-visualization context)))
+        (should testset)
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (equal (buffer-file-name) image)))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-open-visualization-uses-manifest-path-for-arbitrary-stems ()
+  ;; Even if a generated input were named dag.in, the manifest path wins.
+  (rbx-test-with-directory root
+    (let ((image (rbx-test-write
+                  root "build/tests/samples/visualization/dag.png" "png")))
+      (rbx-test-write
+       root "build/testset.yml"
+       (concat
+        "version: 1\ntask_type: BATCH\ngroups:\n  - name: samples\n"
+        "entries:\n  - group_entry: {group: samples, index: 0}\n"
+        "    metadata: {copied_to: {inputPath: build/tests/samples/dag.in}}\n"
+        "tests:\n- group: samples\n  index: 0\n"
+        "  visualization:\n"
+        "    input: build/tests/samples/visualization/dag.png\n"))
+      (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                          :build-dir "build"))
+             (entry (rbx-testcase-create
+                     :group "samples" :index 0
+                     :input-path "build/tests/samples/dag.in"))
+             (buffer (rbx-open-visualization
+                      (list :kind 'run-testcase :package package
+                            :testcase entry))))
+        (should (equal (rbx-testcase-stem entry) "dag"))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (equal (buffer-file-name) image)))
+          (kill-buffer buffer))))))
+
+(defun rbx-test--run-view-visualization-fixture (root &optional stem)
+  "Write a run-view package under ROOT with input and answer visualizations.
+
+STEM is the generated testcase basename, defaulting to \"000\"."
+  (setq stem (or stem "000"))
+  (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+  (rbx-test-write root "vis/in.png" "in")
+  (rbx-test-write root "vis/out.png" "out")
+  (rbx-test-write
+   root ".rbx/runs/skeleton.yml"
+   (concat
+    "solutions:\n  - path: sols/ac.cpp\n    outcome: ACCEPTED\n"
+    "groups:\n  - name: main\n    score: 100\n"
+    "entries:\n  - group_entry: {group: main, index: 0}\n"
+    (format "    metadata: {copied_to: {inputPath: build/tests/main/%s.in}}\n"
+            stem)))
+  (rbx-test-write
+   root ".rbx/runs/report.yml"
+   (concat
+    "version: 1\nsolutions:\n  - path: sols/ac.cpp\n    index: 0\n"
+    "    expectedOutcome: ACCEPTED\n    outcome: accepted\n"
+    "    status: OK\n    matchesExpectation: true\n"
+    "    score: 100\n    maxScore: 100\n    failedGroups: []\n"
+    "    groups:\n      - name: main\n        outcome: accepted\n"
+    "        expectedOutcome: ACCEPTED\n"
+    "        matchesExpectation: true\n        score: 100\n"
+    "        maxScore: 100\n"))
+  (rbx-test-write
+   root (format ".rbx/runs/0/main/%s.eval" stem)
+   "result: {outcome: accepted}\nlog: {time: 0.01, memory: 2048}\n")
+  (rbx-test-write
+   root "build/testset.yml"
+   (concat "version: 1\ntask_type: BATCH\n"
+           "tests:\n- group: main\n  index: 0\n"
+           "  visualization:\n    input: vis/in.png\n    output: vis/out.png\n")))
+
+(ert-deftest rbx-visualization-commands-work-at-point-in-the-run-view ()
+  (rbx-test-with-directory root
+    (rbx-test--run-view-visualization-fixture root)
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build"))
+          opened)
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'run)
+        (rbx-refresh)
+        (goto-char (point-min))
+        (re-search-forward "^  . +main")
+        (magit-section-show (magit-current-section))
+        (re-search-forward "^    000")
+        (cl-letf (((symbol-function 'rbx--open-visualization-path)
+                   (lambda (path) (push path opened))))
+          (call-interactively #'rbx-open-visualization)
+          (call-interactively #'rbx-open-answer-visualization)))
+      (should (equal (nreverse opened)
+                     (list (expand-file-name "vis/in.png" root)
+                           (expand-file-name "vis/out.png" root)))))))
+
+(ert-deftest rbx-visualization-commands-work-in-the-run-view-with-nonstandard-names ()
+  (rbx-test-with-directory root
+    (rbx-test--run-view-visualization-fixture root "dag")
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build"))
+          opened)
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'run)
+        (rbx-refresh)
+        (goto-char (point-min))
+        (re-search-forward "^  . +main")
+        (magit-section-show (magit-current-section))
+        (re-search-forward "^    dag")
+        (cl-letf (((symbol-function 'rbx--open-visualization-path)
+                   (lambda (path) (push path opened))))
+          (call-interactively #'rbx-open-visualization)
+          (call-interactively #'rbx-open-answer-visualization)))
+      (should (equal (nreverse opened)
+                     (list (expand-file-name "vis/in.png" root)
+                           (expand-file-name "vis/out.png" root)))))))
+
+(ert-deftest rbx-visualization-commands-route-every-file-type-in-the-run-view ()
+  ;; HTML goes to the browser; everything else is visited in a window.
+  (dolist (case '(("html" . browse) ("htm" . browse) ("HTML" . browse)
+                  ("svg" . visit) ("png" . visit) ("pdf" . visit)
+                  ("txt" . visit)))
+    (rbx-test-with-directory root
+      (let ((extension (car case)))
+        (rbx-test--run-view-visualization-fixture root)
+        (rbx-test-write root (concat "vis/in." extension) "in")
+        (rbx-test-write root (concat "vis/out." extension) "out")
+        (rbx-test-write
+         root "build/testset.yml"
+         (format (concat "version: 1\ntask_type: BATCH\n"
+                         "tests:\n- group: main\n  index: 0\n"
+                         "  visualization:\n    input: vis/in.%s\n"
+                         "    output: vis/out.%s\n")
+                 extension extension))
+        (let ((package (rbx-package-create
+                        :root (file-name-as-directory root)
+                        :build-dir "build"))
+              browsed visited)
+          (with-temp-buffer
+            (rbx-view-mode)
+            (setq-local rbx--package package)
+            (setq-local rbx--view 'run)
+            (rbx-refresh)
+            (goto-char (point-min))
+            (re-search-forward "^  . +main")
+            (magit-section-show (magit-current-section))
+            (re-search-forward "^    000")
+            (cl-letf (((symbol-function 'browse-url-of-file)
+                       (lambda (path) (push path browsed)))
+                      ((symbol-function 'find-file-other-window)
+                       (lambda (path &rest _) (push path visited))))
+              (call-interactively #'rbx-open-visualization)
+              (call-interactively #'rbx-open-answer-visualization)))
+          (let ((expected (list (expand-file-name
+                                 (concat "vis/in." extension) root)
+                                (expand-file-name
+                                 (concat "vis/out." extension) root))))
+            (pcase (cdr case)
+              ('browse (should (equal (nreverse browsed) expected))
+                       (should-not visited))
+              ('visit (should (equal (nreverse visited) expected))
+                      (should-not browsed)))))))))
+
+(ert-deftest rbx-visualization-errors-explain-how-to-regenerate ()
+  ;; `rbx run' rebuilds build/tests without --visualize, which deletes the
+  ;; visualizations and drops them from the manifest.
+  (let* ((test (rbx-testset-test-create :group "main" :index 0))
+         (testcase (rbx-testset-testcase-create
+                    :entry (rbx-testcase-create :group "main" :index 0)
+                    :stem "000" :test test))
+         (context (list :kind 'testset-testcase :testcase testcase)))
+    (dolist (command '(rbx-open-visualization rbx-open-answer-visualization))
+      (let ((error (should-error (funcall command context)
+                                 :type 'user-error)))
+        (should (string-match-p "rbx build --visualize"
+                                (error-message-string error)))))))
