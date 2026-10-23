@@ -16,4 +16,15 @@
    "python"
    "python-pip"
    "ripgrep"
+   ;; For the statement-build integration test: rbx runs pdflatex on its
+   ;; bundled ICPC template, which needs these beyond the small scheme.
+   "texlive-scheme-small"
+   "texlive-enumitem"
+   "texlive-import"
+   "texlive-logicpuzzle"
+   "texlive-marginnote"
+   "texlive-moreverb"
+   "texlive-multirow"
+   "texlive-pmboxdraw"
+   "texlive-titlesec"
    "yq"))

@@ -42,6 +42,12 @@ This repository implements an Emacs 30 package inspired by the official
   README.md).  Guix's read-only store also breaks one of `rbx`'s own preset-
   copying code paths, which assumes it can write into a copy of its own
   bundled resources -- a plain venv install never hits this.
+- Always run tests of any kind -- unit (`make check`) or integration
+  (`make check-integration`) -- under `guix shell --pure -m manifest.scm --`,
+  never against the host toolchain.  If a run fails or skips because a
+  program is missing from that environment, add the package to
+  `manifest.scm` (and `guix.scm` when the package itself needs it) rather
+  than working around it by dropping `--pure`.
 - Run `guix shell --pure -m manifest.scm -- make check` before every commit.
   This includes ERT, byte compilation, Checkdoc, and package-lint in an
   isolated environment.
