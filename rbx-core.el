@@ -58,13 +58,16 @@ The captured group is the variant id, e.g. \"div1\" for
   "Default relative build directory used by rbx.")
 
 (cl-defstruct (rbx-package
-               (:constructor rbx-package-create (&key root build-dir)))
+               (:constructor rbx-package-create (&key root build-dir runs-subdir)))
   "A discovered rbx package.
 
 ROOT is the absolute directory containing `problem.rbx.yml'.
-BUILD-DIR is the build directory relative to ROOT."
+BUILD-DIR is the build directory relative to ROOT.
+RUNS-SUBDIR, when non-nil, is a directory of `.rbx/runs' that holds the
+run artifacts instead of `.rbx/runs' itself, as for `rbx irun'."
   root
-  build-dir)
+  build-dir
+  runs-subdir)
 
 (cl-defstruct (rbx-watcher (:constructor rbx--watcher-create))
   "State used to watch one rbx package."
@@ -72,6 +75,9 @@ BUILD-DIR is the build directory relative to ROOT."
   callback
   descriptors
   timer)
+
+;; DESCRIPTORS is an alist of (DIRECTORY . DESCRIPTOR): see
+;; `rbx--watcher-sync'.
 
 (defvar rbx--build-directory-cache (make-hash-table :test #'equal)
   "Build directories cached by absolute package root.")
@@ -537,9 +543,29 @@ mirroring rbx's own `contest.*.rbx.yml' variant discovery."
   "Return PACKAGE's cache directory."
   (expand-file-name rbx-cache-directory (rbx-package-root package)))
 
+(defun rbx--base-runs-path (package)
+  "Return PACKAGE's `.rbx/runs' directory, whatever it is showing."
+  (expand-file-name "runs" (rbx-cache-path package)))
+
 (defun rbx-runs-path (package)
   "Return PACKAGE's run artifact directory."
-  (expand-file-name "runs" (rbx-cache-path package)))
+  (if-let* ((subdir (rbx-package-runs-subdir package)))
+      (expand-file-name subdir (rbx--base-runs-path package))
+    (rbx--base-runs-path package)))
+
+(defconst rbx-adhoc-runs-subdir ".irun"
+  "Directory of `.rbx/runs' where `rbx irun' publishes its results.")
+
+(defun rbx-adhoc-package (package)
+  "Return a copy of PACKAGE that reads the last ad-hoc (`rbx irun') run."
+  (let ((adhoc (copy-rbx-package package)))
+    (setf (rbx-package-runs-subdir adhoc) rbx-adhoc-runs-subdir)
+    adhoc))
+
+(defun rbx-adhoc-input-path (package stem extension)
+  "Return the ad-hoc input artifact STEM plus EXTENSION of PACKAGE.
+EXTENSION includes its leading dot: `.in' or `.out'."
+  (expand-file-name (concat "inputs/" stem extension) (rbx-runs-path package)))
 
 (defun rbx-skeleton-path (package)
   "Return PACKAGE's solution skeleton path."
@@ -548,6 +574,35 @@ mirroring rbx's own `contest.*.rbx.yml' variant discovery."
 (defun rbx-report-path (package)
   "Return PACKAGE's aggregate run report path."
   (expand-file-name "report.yml" (rbx-runs-path package)))
+
+(defun rbx-statement-report-path (package)
+  "Return PACKAGE's statement build report path."
+  (expand-file-name "statements/report.yml" (rbx-cache-path package)))
+
+(defun rbx-stress-path (package)
+  "Return PACKAGE's stress session directory."
+  (expand-file-name ".stress" (rbx--base-runs-path package)))
+
+(defun rbx-stress-manifest-path (package)
+  "Return PACKAGE's stress manifest path."
+  (expand-file-name "stress.yml" (rbx-stress-path package)))
+
+(defun rbx-stress-finding-path (package index file)
+  "Return FILE inside finding INDEX of PACKAGE's stress session."
+  (expand-file-name (format "findings/%d/%s" index file)
+                    (rbx-stress-path package)))
+
+(defun rbx--stress-subdirectories (package)
+  "Return PACKAGE's existing stress session and finding directories."
+  (let ((stress (rbx-stress-path package))
+        (findings (expand-file-name "findings" (rbx-stress-path package))))
+    (when (file-directory-p stress)
+      (cons stress
+            (when (file-directory-p findings)
+              (cons findings
+                    (seq-filter #'file-directory-p
+                                (directory-files
+                                 findings t "\\`[0-9]+\\'"))))))))
 
 (defun rbx-build-path (package)
   "Return PACKAGE's absolute build directory."
@@ -568,7 +623,10 @@ mirroring rbx's own `contest.*.rbx.yml' variant discovery."
 PACKAGE and SOLUTION-INDEX select a solution, GROUP and STEM select a
 testcase, and EXTENSION includes its leading dot."
   (expand-file-name
-   (format "%s/%s%s" group stem extension)
+   ;; `rbx irun' runs a single testcase and writes no group level.
+   (if (rbx-package-runs-subdir package)
+       (concat stem extension)
+     (format "%s/%s%s" group stem extension))
    (expand-file-name (number-to-string solution-index)
                      (rbx-runs-path package))))
 
@@ -597,29 +655,100 @@ on a different host from the one that produced them."
      (string-join (split-string recorded-path "[/\\\\]+" t) "/")
      (rbx-package-root package))))
 
+(defun rbx--preset-watch-directories (package)
+  "Return the directories holding PACKAGE's preset and environment files.
+A preset can rename the build directory, so editing either file matters."
+  (when-let* ((preset-directory
+               (rbx--find-preset-directory (rbx-package-root package))))
+    (let ((preset (rbx-read-yaml
+                   (expand-file-name "preset.rbx.yml" preset-directory)))
+          (directories (list preset-directory)))
+      (when-let* ((environment (rbx--wire-string
+                                (rbx--wire-field preset "env"))))
+        (push (file-name-directory
+               (expand-file-name environment preset-directory))
+              directories))
+      directories)))
+
+(defun rbx--run-subdirectories (package)
+  "Return the existing per-solution and per-group run directories of PACKAGE.
+These hold the `.eval' files that arrive while a run is in progress.
+`file-notify' is not recursive, so they have to be named one by one."
+  (let ((runs (rbx-runs-path package)))
+    (when (file-directory-p runs)
+      (cl-loop
+       for solution in (directory-files runs t "\\`[0-9]+\\'")
+       when (file-directory-p solution)
+       collect solution
+       and append (seq-filter #'file-directory-p
+                              (directory-files
+                               solution t
+                               directory-files-no-dot-files-regexp))))))
+
 (defun rbx--watchable-directories (package)
   "Return existing artifact directories worth watching for PACKAGE."
   (delete-dups
-   (seq-filter #'file-directory-p
-               (list (rbx-package-root package)
-                     (rbx-cache-path package)
-                     (rbx-runs-path package)
-                     (rbx-build-path package)
-                     (rbx-tests-path package)))))
+   (mapcar
+    #'directory-file-name
+    (seq-filter #'file-directory-p
+                (append (list (rbx-package-root package)
+                              (rbx-cache-path package)
+                              (rbx-runs-path package)
+                              (file-name-directory
+                               (rbx-statement-report-path package))
+                              (rbx-build-path package)
+                              (rbx-tests-path package))
+                        (rbx--preset-watch-directories package)
+                        (rbx--run-subdirectories package)
+                        (rbx--stress-subdirectories package)
+                        (when (rbx-package-runs-subdir package)
+                          (list (expand-file-name
+                                 "inputs" (rbx-runs-path package)))))))))
 
 (defun rbx--artifact-event-p (event)
   "Return non-nil when file notification EVENT concerns rbx state."
   (let ((path (nth 2 event)))
     (and (stringp path)
          (or (string-match-p
-              (rx (or "problem.rbx.yml" "preset.rbx.yml" "testset.yml"
-                      "skeleton.yml" "report.yml") string-end)
+              (rx (or "problem.rbx.yml" "preset.rbx.yml" "env.rbx.yml"
+                      "testset.yml" "skeleton.yml" "report.yml")
+                  string-end)
               path)
              (string-match-p
               (rx "." (or "eval" "out" "in" "err" "log" "pio")
                   string-end)
               path)
              (string-match-p (rx "/.rbx" (or "/" string-end)) path)))))
+
+(defun rbx--watcher-sync (watcher)
+  "Make WATCHER watch exactly what its package needs watched right now.
+Directories that appeared since the last sync are added, and those that
+vanished or stopped being relevant (an old build directory, say) are
+dropped.  The package's build directory is first re-resolved, so a preset
+that renamed it is followed rather than leaving the view on the old one."
+  (let* ((package (rbx-watcher-package watcher))
+         (wanted (progn
+                   (setf (rbx-package-build-dir package)
+                         (rbx-resolve-build-dir (rbx-package-root package)))
+                   (rbx--watchable-directories package)))
+         (current (rbx-watcher-descriptors watcher)))
+    (dolist (entry current)
+      (unless (member (car entry) wanted)
+        (condition-case nil
+            (file-notify-rm-watch (cdr entry))
+          (file-notify-error nil))
+        (setq current (delq entry current))))
+    (dolist (directory wanted)
+      (unless (assoc directory current)
+        (when-let* ((descriptor
+                     (condition-case nil
+                         (file-notify-add-watch
+                          directory '(change attribute-change)
+                          (lambda (event)
+                            (rbx--watcher-notify watcher event)))
+                       (file-notify-error nil))))
+          (push (cons directory descriptor) current))))
+    (setf (rbx-watcher-descriptors watcher) current)))
 
 (defun rbx--watcher-notify (watcher event)
   "Schedule WATCHER's callback in response to EVENT."
@@ -632,24 +761,18 @@ on a different host from the one that produced them."
            (lambda ()
              (setf (rbx-watcher-timer watcher) nil)
              (rbx-reset-build-directories)
+             (when (rbx-watcher-descriptors watcher)
+               (rbx--watcher-sync watcher))
              (funcall (rbx-watcher-callback watcher)))))))
 
 (defun rbx-watch-package (package callback)
   "Watch PACKAGE artifacts and invoke CALLBACK after an artifact change.
 
-The returned watcher must eventually be passed to `rbx-stop-watcher'."
+Directories that only come into existence later, such as `.rbx/runs' before
+the first run, are picked up as they appear.  The returned watcher must
+eventually be passed to `rbx-stop-watcher'."
   (let ((watcher (rbx--watcher-create :package package :callback callback)))
-    (setf (rbx-watcher-descriptors watcher)
-          (delq nil
-                (mapcar
-                 (lambda (directory)
-                   (condition-case nil
-                       (file-notify-add-watch
-                        directory '(change attribute-change)
-                        (lambda (event)
-                          (rbx--watcher-notify watcher event)))
-                     (file-notify-error nil)))
-                 (rbx--watchable-directories package))))
+    (rbx--watcher-sync watcher)
     watcher))
 
 (defun rbx-watch-contest (packages callback)
@@ -668,9 +791,9 @@ Returns a list of watchers that must eventually each be passed to
     (when-let* ((timer (rbx-watcher-timer watcher)))
       (cancel-timer timer)
       (setf (rbx-watcher-timer watcher) nil))
-    (dolist (descriptor (rbx-watcher-descriptors watcher))
+    (dolist (entry (rbx-watcher-descriptors watcher))
       (condition-case nil
-          (file-notify-rm-watch descriptor)
+          (file-notify-rm-watch (cdr entry))
         (file-notify-error nil)))
     (setf (rbx-watcher-descriptors watcher) nil)))
 

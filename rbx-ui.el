@@ -18,6 +18,7 @@
 ;;; Code:
 
 (require 'browse-url)
+(require 'compile)
 (require 'diff)
 (require 'eieio)
 (require 'font-lock)
@@ -237,6 +238,8 @@ adjusted by the user remains intact."
 (defclass rbx-statistics-section (magit-section) ())
 (defclass rbx-gallery-group-section (magit-section) ())
 (defclass rbx-gallery-testcase-section (magit-section) ())
+(defclass rbx-stress-finding-section (magit-section) ())
+(defclass rbx-stress-solution-section (magit-section) ())
 (defclass rbx-contest-section (magit-section) ())
 (defclass rbx-contest-variant-section (magit-section) ())
 (defclass rbx-contest-problem-section (magit-section) ())
@@ -742,7 +745,8 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
         (magit-insert-section
             (rbx-root-section (list :kind 'root :package package))
           (magit-insert-heading
-           (format "Run · %s%s%s\n"
+           (format "%s · %s%s%s\n"
+                   (if (rbx-package-runs-subdir package) "Ad-hoc run" "Run")
                    (rbx--package-heading-label
                     package (abbreviate-file-name (rbx-package-root package)))
                    (if rbx--contest-watchers " · following" "")
@@ -767,9 +771,12 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
     (magit-insert-section
         (rbx-root-section (list :kind 'root :package package))
       (magit-insert-heading
-       (format "Run%s" (if rbx--contest-watchers " · following" "")))
+       (format "%s%s" (if (rbx-package-runs-subdir package) "Ad-hoc run" "Run")
+               (if rbx--contest-watchers " · following" "")))
       (insert (propertize
-               "No run artifacts yet.  Run `rbx run` in your terminal.\n"
+               (if (rbx-package-runs-subdir package)
+                   "No ad-hoc run yet.  Run `rbx irun` in your terminal.\n"
+                 "No run artifacts yet.  Run `rbx run` in your terminal.\n")
                'face 'shadow)))))
 
 (defun rbx--testcase-provenance (entry)
@@ -1167,10 +1174,11 @@ selection a terminal invocation used."
         (line (line-number-at-pos)))
     (erase-buffer)
     (pcase rbx--view
-      ('run (rbx--insert-run-view rbx--package))
+      ((or 'run 'adhoc) (rbx--insert-run-view rbx--package))
       ('testset (rbx--insert-testset-view rbx--package))
       ('contest (rbx--insert-contest-view rbx--contest-root))
       ('gallery (rbx--insert-gallery-view rbx--package))
+      ('stress (rbx--insert-stress-view rbx--package))
       (_ (insert "Unknown rbx view.\n")))
     (goto-char (point-min))
     (forward-line (1- line))))
@@ -1191,7 +1199,6 @@ selection a terminal invocation used."
            (lambda ()
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
-                 (rbx--start-buffer-watcher)
                  (rbx-refresh))))))))
 
 (defun rbx--contest-follow-candidates ()
@@ -1362,7 +1369,8 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
 (defun rbx--open-view (view &optional package)
   "Open VIEW for PACKAGE."
   (rbx-ensure-yq)
-  (let* ((selected (or package (rbx--select-package)))
+  (let* ((selected (let ((chosen (or package (rbx--select-package))))
+                     (if (eq view 'adhoc) (rbx-adhoc-package chosen) chosen)))
          (label (rbx--package-heading-label
                  selected (file-name-nondirectory
                           (directory-file-name (rbx-package-root selected)))))
@@ -1388,6 +1396,12 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
   (rbx--open-view 'run package))
 
 ;;;###autoload
+(defun rbx-adhoc-run-view (&optional package)
+  "Open the results of PACKAGE's last ad-hoc (`rbx irun') run."
+  (interactive)
+  (rbx--open-view 'adhoc package))
+
+;;;###autoload
 (defun rbx-testset-view (&optional package)
   "Open the built testset view for PACKAGE."
   (interactive)
@@ -1398,6 +1412,12 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
   "Open a visualization gallery for PACKAGE's built testset."
   (interactive)
   (rbx--open-view 'gallery package))
+
+;;;###autoload
+(defun rbx-stress-view (&optional package)
+  "Open the latest stress session of PACKAGE, read from disk."
+  (interactive)
+  (rbx--open-view 'stress package))
 
 ;;;###autoload
 (defun rbx-contest-view (&optional contest-root)
@@ -1444,6 +1464,14 @@ current view, or the nearest contest to `default-directory'."
   (when-let* ((section (magit-current-section)))
     (oref section value)))
 
+(defun rbx--testcase-artifact-path (package group stem extension)
+  "Return the input or answer artifact of PACKAGE's GROUP/STEM testcase.
+EXTENSION is `.in' or `.out'.  An ad-hoc run keeps these beside its results,
+not in the testset."
+  (if (rbx-package-runs-subdir package)
+      (rbx-adhoc-input-path package stem extension)
+    (rbx-test-artifact-path package group stem extension)))
+
 (defun rbx--context-path (context channel)
   "Return CONTEXT's artifact path for CHANNEL."
   (let* ((package (plist-get context :package))
@@ -1455,8 +1483,8 @@ current view, or the nearest contest to `default-directory'."
               (group (rbx-testcase-group entry))
               (stem (rbx-testcase-stem entry)))
          (pcase channel
-           ('input (rbx-test-artifact-path package group stem ".in"))
-           ('expected (rbx-test-artifact-path package group stem ".out"))
+           ('input (rbx--testcase-artifact-path package group stem ".in"))
+           ('expected (rbx--testcase-artifact-path package group stem ".out"))
            ('output (rbx-run-artifact-path package index group stem ".out"))
            ('stderr (rbx-run-artifact-path package index group stem ".err"))
            ('log (rbx-run-artifact-path package index group stem ".log"))
@@ -1469,6 +1497,16 @@ current view, or the nearest contest to `default-directory'."
            ('checker-stderr
             (rbx-run-artifact-path package index group stem
                                    ".checker.err")))))
+      ((or 'stress-finding 'stress-solution)
+       (let ((finding (plist-get context :finding))
+             (solution (plist-get context :solution)))
+         (pcase channel
+           ('input (rbx-stress-finding-path package finding "input.in"))
+           ('expected (rbx-stress-finding-path package finding "input.ans"))
+           ('output (and solution (rbx-stress-finding-path
+                                   package finding (format "%d.out" solution))))
+           ('stderr (and solution (rbx-stress-finding-path
+                                   package finding (format "%d.err" solution)))))))
       ('testset-testcase
        (let* ((testcase (plist-get context :testcase))
               (entry (rbx-testset-testcase-entry testcase))
@@ -1496,9 +1534,11 @@ MISSING, when non-nil, is the message to signal if PATH is unreadable."
                (file-readable-p expected) (file-readable-p actual))
     (user-error "Output or expected answer is not available"))
   (let* ((entry (plist-get context :testcase))
-         (stem (if (rbx-testset-testcase-p entry)
-                   (rbx-testset-testcase-stem entry)
-                 (rbx-testcase-stem entry)))
+         (stem (cond
+                ((rbx-testset-testcase-p entry)
+                 (rbx-testset-testcase-stem entry))
+                (entry (rbx-testcase-stem entry))
+                (t (format "stress #%s" (plist-get context :finding)))))
          (buffer (get-buffer-create (format "*rbx diff: %s*" stem))))
     (diff-no-select expected actual "-u" t buffer)))
 
@@ -1823,6 +1863,14 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
     (unless path (user-error "No visualization at point"))
     (rbx--open-visualization-path path)))
 
+(defun rbx-copy-stress-generator ()
+  "Copy the generator call that reproduces the stress finding at point."
+  (interactive)
+  (let ((call (plist-get (rbx--context) :generator)))
+    (unless call (user-error "No stress finding at point"))
+    (kill-new call)
+    (message "Copied: %s" call)))
+
 (defun rbx-view-visit ()
   "Visit or toggle the rbx section at point."
   (interactive)
@@ -1835,17 +1883,220 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
       ('warning (rbx-open-warning))
       ('contest-problem (rbx-open-contest-problem context))
       ('gallery-visualization (rbx-open-gallery-visualization context))
+      ('stress-finding (rbx-open-input))
+      ('stress-solution (rbx-open-output))
       (_ (if section (magit-section-toggle section)
            (user-error "No rbx item at point"))))))
+
+;;;; Stress findings
+
+(defun rbx--stress-detail (label value)
+  "Return a detail line \"LABEL: VALUE\", or nil when VALUE is empty."
+  (when (and value (not (equal value "")))
+    (format "  %s %s\n" (propertize (concat label ":") 'face 'shadow) value)))
+
+(defun rbx--insert-stress-solution (package stress finding result)
+  "Insert RESULT of FINDING in STRESS, for PACKAGE."
+  (let* ((index (rbx-stress-result-solution result))
+         (outcome (rbx-stress-result-outcome result))
+         (name (or (nth index (rbx-stress-solutions stress))
+                   (format "solution %d" index)))
+         (context (list :kind 'stress-solution :package package
+                        :finding (rbx-stress-finding-index finding)
+                        :solution index
+                        :generator (rbx-stress-finding-generator finding))))
+    (magit-insert-section (rbx-stress-solution-section context)
+      (insert
+       (format "    %s  %s%s\n"
+               (rbx--fontify (format "%-3s" (rbx-outcome-short-name outcome))
+                             (rbx--outcome-face outcome))
+               name
+               (let ((measured
+                      (delq nil
+                            (list (rbx-format-time
+                                   (rbx-stress-result-time result))
+                                  (rbx-format-memory
+                                   (rbx-stress-result-memory result))))))
+                 (if measured
+                     (concat "  " (propertize (string-join measured " · ")
+                                              'face 'shadow))
+                   "")))))))
+
+(defun rbx--insert-stress-finding (package stress finding)
+  "Insert FINDING of STRESS, for PACKAGE."
+  (let ((context (list :kind 'stress-finding :package package
+                       :finding (rbx-stress-finding-index finding)
+                       :generator (rbx-stress-finding-generator finding))))
+    (magit-insert-section (rbx-stress-finding-section context)
+      (magit-insert-heading
+        (format "  #%d  %s%s\n"
+                (rbx-stress-finding-index finding)
+                (rbx-stress-finding-generator finding)
+                (if-let* ((duration (rbx-stress-finding-duration finding)))
+                    (propertize (format "  (%d ms)" duration) 'face 'shadow)
+                  "")))
+      (dolist (result (rbx-stress-finding-results finding))
+        (rbx--insert-stress-solution package stress finding result)))))
+
+(defun rbx--stress-time-limit-note (stress)
+  "Describe the time limit STRESS ran under, or nil when unlimited."
+  (when-let* ((limit (rbx-stress-timelimit stress)))
+    (format "%d ms%s" limit
+            (if (rbx-stress-double-tl stress)
+                " (solutions ran under twice that)"
+              ""))))
+
+(defun rbx--insert-stress-view (package)
+  "Insert PACKAGE's latest stress session at point."
+  (magit-insert-section (rbx-root-section (list :kind 'root :package package))
+                        (magit-insert-heading
+                         (format "Stress · %s\n"
+                                 (rbx--package-heading-label
+                                  package (abbreviate-file-name (rbx-package-root package)))))
+                        (if-let* ((stress (rbx-load-stress package)))
+                            (progn
+                              (mapc
+                               #'insert
+                               (delq
+                                nil
+                                (list
+                                 (rbx--stress-detail
+                                  "state"
+                                  (format "%s · %s executed, %s skipped · %.1f s"
+                                          (rbx-stress-state stress)
+                                          (or (rbx-stress-executed stress) 0)
+                                          (or (rbx-stress-skipped stress) 0)
+                                          (or (rbx-stress-elapsed stress) 0)))
+                                 (rbx--stress-detail "name" (rbx-stress-name stress))
+                                 (rbx--stress-detail "generator" (rbx-stress-generator stress))
+                                 (rbx--stress-detail "finder" (rbx-stress-finder stress))
+                                 (rbx--stress-detail "fuzz" (string-join (rbx-stress-fuzz stress) ", "))
+                                 (rbx--stress-detail "time limit"
+                                                     (rbx--stress-time-limit-note stress)))))
+                              (insert "\n")
+                              (let ((findings (rbx-stress-findings stress)))
+                                (if (null findings)
+                                    (insert (propertize "No findings yet.\n" 'face 'shadow))
+                                  (magit-insert-section (rbx-group-section (list :kind 'stress))
+                                                        (magit-insert-heading (format "Findings (%d)\n" (length findings)))
+                                                        (dolist (finding findings)
+                                                          (rbx--insert-stress-finding package stress finding))))))
+                          (insert (propertize
+                                   "No stress session yet.  Run `rbx stress' in your terminal.\n"
+                                   'face 'shadow)))))
+
+;;;; Statement build report
+
+(defun rbx--statement-output-file (package output)
+  "Return the readable absolute path of OUTPUT, or nil.
+OUTPUT is an `rbx-statement-output'; its recorded path is relative to
+PACKAGE's root."
+  (let ((file (rbx-package-file-path
+               package (rbx-statement-output-path output))))
+    (and (file-readable-p file) file)))
+
+(defun rbx--statement-output-label (output)
+  "Return a picker label for the `rbx-statement-output' OUTPUT."
+  (string-join
+   (delq nil
+         (list (rbx-statement-output-kind output)
+               (rbx-statement-output-name output)
+               (rbx-statement-output-language output)
+               (rbx-statement-output-variant output)
+               (format "(%s%s)" (or (rbx-statement-output-format output) "?")
+                       (if (equal (rbx-statement-output-status output) "failed")
+                           ", failed" ""))))
+   " "))
+
+(defun rbx--read-statement-output (package)
+  "Ask which of PACKAGE's reported statement outputs to use."
+  (let* ((report (or (rbx-load-statement-report package)
+                     (user-error "No statement build report; build the statement first")))
+         (outputs (rbx-statement-report-outputs report))
+         (choices (mapcar (lambda (output)
+                            (cons (rbx--statement-output-label output) output))
+                          outputs)))
+    (pcase choices
+      ('() (user-error "The statement build report has no outputs"))
+      (`(,only) (cdr only))
+      (_ (cdr (assoc (completing-read "Statement: " choices nil t) choices))))))
+
+(defun rbx--statement-package ()
+  "Return the package of the current rbx view, or select one."
+  (or (and (boundp 'rbx--package) rbx--package) (rbx--select-package)))
+
+;;;###autoload
+(defun rbx-preview-statement (&optional package)
+  "Open a built statement of PACKAGE for reading.
+The file is visited read-only and reverted when a rebuild replaces it."
+  (interactive)
+  (rbx-ensure-yq)
+  (let* ((package (or package (rbx--statement-package)))
+         (output (rbx--read-statement-output package))
+         (file (or (rbx--statement-output-file package output)
+                   (user-error "Not built yet: %s"
+                               (rbx-statement-output-path output))))
+         (buffer (find-file-noselect file)))
+    (with-current-buffer buffer
+      (auto-revert-mode 1)
+      (unless (derived-mode-p 'doc-view-mode 'pdf-view-mode)
+        (view-mode 1)))
+    (pop-to-buffer buffer)))
+
+(defun rbx--statement-findings-buffer (package)
+  "Return a `compilation-mode' buffer listing PACKAGE's statement errors."
+  (let* ((report (or (rbx-load-statement-report package)
+                     (user-error "No statement build report; build the statement first")))
+         (findings
+          (mapcan (lambda (output)
+                    (mapcar (lambda (finding) (cons output finding))
+                            (rbx-statement-output-findings output)))
+                  (rbx-statement-report-outputs report)))
+         (buffer (get-buffer-create
+                  (format "*rbx statement: %s*"
+                          (file-name-nondirectory
+                           (directory-file-name (rbx-package-root package)))))))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (setq default-directory (rbx-package-root package))
+        (if (null findings)
+            (insert "No statement errors in the last build.\n")
+          (pcase-dolist (`(,output . ,finding) findings)
+            (let ((file (rbx-statement-finding-file finding))
+                  (line (rbx-statement-finding-line finding)))
+              (insert
+               (if (and file line)
+                   (format "%s:%d: " file line)
+                 (format "%s: " (rbx--statement-output-label output)))
+               (rbx-statement-finding-severity finding) ": "
+               (rbx-statement-finding-message finding) "\n")
+              (when-let* ((context (rbx-statement-finding-context finding)))
+                (insert "    " context "\n"))))))
+      (compilation-mode)
+      (goto-char (point-min)))
+    buffer))
+
+;;;###autoload
+(defun rbx-show-statement-findings (&optional package)
+  "Show the errors of PACKAGE's last statement build, jumping to sources."
+  (interactive)
+  (rbx-ensure-yq)
+  (pop-to-buffer
+   (rbx--statement-findings-buffer (or package (rbx--statement-package)))))
 
 ;;;###autoload
 (transient-define-prefix rbx-dispatch ()
   "Open rbx views and act on the item at point."
   [["Views"
     ("r" "Run" rbx-run-view)
+    ("I" "Last ad-hoc run" rbx-adhoc-run-view)
     ("t" "Tests" rbx-testset-view)
     ("c" "Contest" rbx-contest-view)
     ("G" "Visualizations" rbx-visualization-gallery)
+    ("S" "Stress findings" rbx-stress-view)
+    ("P" "Preview statement" rbx-preview-statement)
+    ("E" "Statement errors" rbx-show-statement-findings)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
     ("f" "Follow running problem" rbx-toggle-contest-follow
      :if-mode rbx-view-mode)
@@ -1860,6 +2111,8 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
     ("d" "Diff" rbx-diff-output :if-mode rbx-view-mode)
     ("v" "Input visualization" rbx-open-visualization :if-mode rbx-view-mode)
     ("A" "Answer visualization" rbx-open-answer-visualization
+     :if-mode rbx-view-mode)
+    ("w" "Copy stress generator call" rbx-copy-stress-generator
      :if-mode rbx-view-mode)
     ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
     ("s" "Visit source" rbx-visit-testcase-source :if-mode rbx-view-mode)

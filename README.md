@@ -27,6 +27,19 @@ extension calls them the same way.
   artifact sizes, visualizations, and constraint coverage.
 - Aggregate testset statistics: total and per-group testcase counts and
   input/output sizes, with a proportional bar per group.
+- Ad-hoc runs: `M-x rbx-adhoc-run-view` (`I` in the Transient) shows the
+  last `rbx irun` result — `.rbx/runs/.irun/` — in the run view's layout,
+  with inputs and answers taken from its own `inputs/` directory.
+- Stress findings: `M-x rbx-stress-view` (`S` in the Transient) shows the
+  session `rbx stress` last published (state, finder, time limit) and each
+  counterexample with every solution's verdict, time and memory.  `i`, `a`,
+  `o` and `2` open a finding's input, answer, and a solution's output and
+  stderr; `w` copies the generator call that reproduces it.
+- Statement preview: `M-x rbx-preview-statement` opens a built statement
+  PDF (picked from `.rbx/statements/report.yml`) with auto-revert, and
+  `M-x rbx-show-statement-findings` lists the last build's LaTeX/template
+  errors in a `compilation-mode` buffer whose lines jump to the source
+  (`P` and `E` in the Transient).
 - A visualization gallery, grouped like the testset browser, with inline
   image thumbnails and link lines for HTML visualizations; opens the input
   or answer visualization for any testcase from either view.
@@ -253,18 +266,20 @@ used to generate the lock, rerun `uv lock && uv export --no-dev
 `test/rbx-integration-test.el` automates this: it scaffolds a real problem
 package with `.venv-rbx/bin/rbx create --preset default`, runs it, and feeds
 its actual artifacts to rbx.el's readers, to catch drift against fixture-only
-coverage. It is not part of `make check` and must run outside `guix shell
---pure -m manifest.scm`: `rbx run` shells out to a C/C++ compiler, which that
-isolated manifest deliberately does not provide (see AGENTS.md). Run it
-directly on a host with `python3` and a C++ toolchain available:
+coverage. It is not part of `make check`, and like every test run it goes
+through the isolated Guix environment, whose `manifest.scm` provides the C++
+toolchain `rbx run` needs and the TeX Live packages `rbx statements build`
+needs:
 
 ```sh
-make check-integration
+guix shell --pure -m manifest.scm -- make check-integration
 ```
 
 This builds `.venv-rbx` if needed, then runs the integration suite. Tests
 that need an `rbx` feature missing from the pinned version (e.g. `rbx vars`
-before it existed) skip rather than fail.
+before it existed) skip rather than fail, as does the statement-build
+test when `pdflatex` is not on `PATH`.
+It covers `rbx run`, `irun`, `stress` and `statements build`.
 
 ## License
 

@@ -1290,5 +1290,174 @@ STEM is the generated testcase basename, defaulting to \"000\"."
         (should (string-match-p "limits look untuned.*rbx time"
                                 (buffer-string)))))))
 
+(ert-deftest rbx-statement-findings-buffer-lists-located-errors ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root ".rbx/statements/report.yml"
+     (concat "version: 1\noutputs:\n"
+             "  - kind: statement\n    language: en\n    format: pdf\n"
+             "    path: build/statement-en.pdf\n    status: failed\n"
+             "    builtAt: '2026-10-20T00:00:00Z'\n    seconds: 1.0\n"
+             "    findings:\n"
+             "      - origin: latex\n        severity: error\n"
+             "        message: Undefined control sequence.\n"
+             "        file: statement/statement.rbx.tex\n        line: 12\n"
+             "      - origin: build\n        severity: error\n"
+             "        message: pdflatex failed.\n"))
+    (let* ((package (rbx-package-create
+                     :root (file-name-as-directory root) :build-dir "build"))
+           (buffer (rbx--statement-findings-buffer package)))
+      (with-current-buffer buffer
+        (should (derived-mode-p 'compilation-mode))
+        (should (string-match-p
+                 "^statement/statement.rbx.tex:12: error: Undefined control"
+                 (buffer-string)))
+        (should (string-match-p "pdflatex failed" (buffer-string)))))))
+
+(ert-deftest rbx-statement-findings-buffer-reports-a-clean-build ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root ".rbx/statements/report.yml"
+     (concat "version: 1\noutputs:\n"
+             "  - kind: statement\n    format: pdf\n"
+             "    path: build/statement-en.pdf\n    status: ok\n"))
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (with-current-buffer (rbx--statement-findings-buffer package)
+        (should (string-match-p "No statement errors" (buffer-string)))))))
+
+(ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "build/statement-en.pdf" "%PDF")
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (should (equal (rbx--statement-output-file
+                      package (rbx-statement-output-create
+                               :path "build/statement-en.pdf"
+                               :format "pdf" :status "ok"))
+                     (expand-file-name "build/statement-en.pdf" root)))
+      (should-not (rbx--statement-output-file
+                   package (rbx-statement-output-create
+                            :path "build/missing.pdf"
+                            :format "pdf" :status "ok"))))))
+
+(defun rbx-test--write-stress (root)
+  "Write a stress session with one finding under ROOT; return its package."
+  (rbx-test-write
+   root ".rbx/runs/.stress/stress.yml"
+   (concat "version: 1\nstate: running\nstartedAt: '2026-10-20T10:00:00Z'\n"
+           "elapsed: 3.0\nexecuted: 9\nskipped: 1\n"
+           "spec:\n  name: null\n  generator: gen 1 10\n"
+           "  finder: '[a.cpp] ~ INCORRECT'\n  timeout: 10\n"
+           "  findingsLimit: 5\n  timelimit: 1000\n  doubleTL: true\n"
+           "solutions:\n  - main.cpp\n  - a.cpp\n"
+           "findings:\n  - index: 1\n    duration: 80\n"
+           "    generator:\n      name: gen\n      args: 1 10 --seed=7\n"
+           "    results:\n      - solution: 1\n        outcome: wrong-answer\n"
+           "        time: 0.12\n        memory: 2097152\n"))
+  (rbx-test-write root ".rbx/runs/.stress/findings/1/input.in" "3\n")
+  (rbx-test-write root ".rbx/runs/.stress/findings/1/input.ans" "4\n")
+  (rbx-test-write root ".rbx/runs/.stress/findings/1/1.out" "5\n")
+  (rbx-test-write root ".rbx/runs/.stress/findings/1/1.err" "oops\n")
+  (rbx-package-create :root (file-name-as-directory root) :build-dir "build"))
+
+(ert-deftest rbx-stress-view-renders-session-and-findings ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-test--write-stress root)))
+      (rbx-reset-artifact-cache)
+      (with-temp-buffer
+        (rbx-view-mode)
+        (let ((inhibit-read-only t))
+          (rbx--insert-stress-view package))
+        (let ((text (buffer-string)))
+          (should (string-match-p "running" text))
+          (should (string-match-p "9 executed" text))
+          (should (string-match-p "\\[a.cpp\\] ~ INCORRECT" text))
+          (should (string-match-p "gen 1 10 --seed=7" text))
+          (should (string-match-p "a\\.cpp" text))
+          (should (string-match-p "WA" text))
+          (should (string-match-p "120 ms" text))
+          (should (string-match-p "2 MiB" text))
+          (should (string-match-p "twice" text)))))))
+
+(ert-deftest rbx-stress-view-explains-a-missing-session ()
+  (rbx-test-with-directory root
+    (rbx-reset-artifact-cache)
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--insert-stress-view
+         (rbx-package-create :root (file-name-as-directory root)
+                             :build-dir "build")))
+      (should (string-match-p "No stress session" (buffer-string))))))
+
+(ert-deftest rbx-context-path-resolves-stress-artifacts ()
+  (let* ((package (rbx-package-create :root "/p/" :build-dir "build"))
+         (finding (list :kind 'stress-finding :package package :finding 2))
+         (solution (list :kind 'stress-solution :package package
+                         :finding 2 :solution 1)))
+    (should (equal (rbx--context-path finding 'input)
+                   "/p/.rbx/runs/.stress/findings/2/input.in"))
+    (should (equal (rbx--context-path finding 'expected)
+                   "/p/.rbx/runs/.stress/findings/2/input.ans"))
+    (should (equal (rbx--context-path solution 'input)
+                   "/p/.rbx/runs/.stress/findings/2/input.in"))
+    (should (equal (rbx--context-path solution 'output)
+                   "/p/.rbx/runs/.stress/findings/2/1.out"))
+    (should (equal (rbx--context-path solution 'stderr)
+                   "/p/.rbx/runs/.stress/findings/2/1.err"))))
+
+(ert-deftest rbx-copy-stress-generator-puts-the-call-on-the-kill-ring ()
+  (let ((kill-ring nil)
+        (context (list :kind 'stress-finding :generator "gen 1 10 --seed=7")))
+    (cl-letf (((symbol-function 'rbx--context) (lambda () context)))
+      (rbx-copy-stress-generator))
+    (should (equal (car kill-ring) "gen 1 10 --seed=7"))))
+
+(ert-deftest rbx-adhoc-view-reads-the-last-irun ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root ".rbx/runs/.irun/skeleton.yml"
+     (concat "solutions:\n  - path: sols/a.cpp\n    outcome: ACCEPTED\n"
+             "    runs_dir: .rbx/runs/.irun/0\n"
+             "groups: []\nentries:\n  - group_entry:\n"
+             "      group: interactive\n      index: 0\n"))
+    (rbx-reset-artifact-cache)
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (let ((inhibit-read-only t))
+          (rbx--insert-run-view (rbx-adhoc-package package)))
+        (should (string-match-p "Ad-hoc run" (buffer-string)))
+        (should (string-match-p "a\\.cpp" (buffer-string)))
+        (should (string-match-p "interactive" (buffer-string)))))))
+
+(ert-deftest rbx-adhoc-view-explains-a-missing-irun ()
+  (rbx-test-with-directory root
+    (rbx-reset-artifact-cache)
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--insert-run-view
+         (rbx-adhoc-package
+          (rbx-package-create :root (file-name-as-directory root)
+                              :build-dir "build"))))
+      (should (string-match-p "No ad-hoc run yet.*rbx irun"
+                              (buffer-string))))))
+
+(ert-deftest rbx-context-path-reads-adhoc-inputs-from-the-irun-directory ()
+  (let* ((package (rbx-adhoc-package
+                   (rbx-package-create :root "/p/" :build-dir "build")))
+         (testcase (rbx-testcase-create :group "interactive" :index 0))
+         (context (list :kind 'run-testcase :package package
+                        :solution-index 0 :testcase testcase)))
+    (should (equal (rbx--context-path context 'input)
+                   "/p/.rbx/runs/.irun/inputs/000.in"))
+    (should (equal (rbx--context-path context 'expected)
+                   "/p/.rbx/runs/.irun/inputs/000.out"))
+    (should (equal (rbx--context-path context 'output)
+                   "/p/.rbx/runs/.irun/0/000.out"))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

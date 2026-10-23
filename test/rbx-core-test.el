@@ -165,6 +165,154 @@
           (should (= refreshes 1))
           (rbx-stop-watcher watcher))))))
 
+(defmacro rbx-test-with-recorded-watches (watches &rest body)
+  "Run BODY with `file-notify-add-watch' recording into WATCHES.
+WATCHES is a symbol bound to an alist of (DIRECTORY . CALLBACK) pairs, newest
+first; removed watches are dropped from it."
+  (declare (indent 1))
+  `(let ((,watches nil) (rbx-test--next-descriptor 0))
+     (cl-letf (((symbol-function 'file-notify-add-watch)
+                (lambda (directory _flags callback)
+                  (let ((descriptor (cl-incf rbx-test--next-descriptor)))
+                    (push (list descriptor directory callback) ,watches)
+                    descriptor)))
+               ((symbol-function 'file-notify-rm-watch)
+                (lambda (descriptor)
+                  (setq ,watches (cl-remove descriptor ,watches :key #'car)))))
+       ,@body)))
+
+(defvar rbx-test--next-descriptor 0)
+
+(defun rbx-test--watched-directories (watches)
+  "Return the sorted directory names, relative to nothing, in WATCHES."
+  (sort (mapcar (lambda (watch) (directory-file-name (nth 1 watch))) watches)
+        #'string<))
+
+(ert-deftest rbx-watcher-adopts-directories-created-after-it-started ()
+  (rbx-test-with-directory root
+    (rbx-test-with-recorded-watches watches
+      (let* ((package (rbx-package-create
+                       :root (file-name-as-directory root) :build-dir "build"))
+             (rbx-refresh-delay 0)
+             (refreshes 0)
+             (watcher (rbx-watch-package package (lambda () (cl-incf refreshes)))))
+        (should (equal (rbx-test--watched-directories watches)
+                       (list (directory-file-name (rbx-package-root package)))))
+        (make-directory (expand-file-name ".rbx/runs/0/main" root) t)
+        (funcall (nth 2 (car (last watches)))
+                 (list 1 'created (expand-file-name ".rbx" root)))
+        (sleep-for 0.01)
+        (should (= refreshes 1))
+        (should (member (expand-file-name ".rbx/runs/0/main" root)
+                        (rbx-test--watched-directories watches)))
+        (should (member (expand-file-name ".rbx/runs" root)
+                        (rbx-test--watched-directories watches)))
+        ;; Syncing again must not stack duplicate watches.
+        (let ((count (length watches)))
+          (funcall (nth 2 (car (last watches)))
+                   (list 1 'changed (expand-file-name ".rbx/runs/report.yml" root)))
+          (sleep-for 0.01)
+          (should (= (length watches) count)))
+        (rbx-stop-watcher watcher)
+        (should-not watches)))))
+
+(ert-deftest rbx-watcher-follows-a-repointed-build-directory ()
+  (rbx-test-with-directory root
+    (rbx-test-write root ".local.rbx/preset.rbx.yml" "env: env.rbx.yml\n")
+    (rbx-test-write root ".local.rbx/env.rbx.yml" "buildDir: build\n")
+    (make-directory (expand-file-name "build/tests" root) t)
+    (make-directory (expand-file-name "out/tests" root) t)
+    (rbx-reset-build-directories)
+    (rbx-test-with-recorded-watches watches
+      (let* ((package (rbx--make-package root))
+             (rbx-refresh-delay 0)
+             (seen nil)
+             (watcher (rbx-watch-package
+                       package
+                       (lambda () (push (rbx-package-build-dir package) seen)))))
+        (should (equal (rbx-package-build-dir package) "build"))
+        (should (member (expand-file-name ".local.rbx" root)
+                        (rbx-test--watched-directories watches)))
+        (should (member (expand-file-name "build/tests" root)
+                        (rbx-test--watched-directories watches)))
+        (rbx-test-write root ".local.rbx/env.rbx.yml" "buildDir: out\n")
+        (funcall (nth 2 (car (last watches)))
+                 (list 1 'changed (expand-file-name ".local.rbx/env.rbx.yml" root)))
+        (sleep-for 0.01)
+        (should (equal seen '("out")))
+        (should (equal (rbx-package-build-dir package) "out"))
+        (should (member (expand-file-name "out/tests" root)
+                        (rbx-test--watched-directories watches)))
+        (should-not (member (expand-file-name "build/tests" root)
+                            (rbx-test--watched-directories watches)))
+        (rbx-stop-watcher watcher)))))
+
+(ert-deftest rbx-adhoc-package-reads-the-irun-directory ()
+  (let* ((package (rbx-package-create :root "/p/" :build-dir "build"))
+         (adhoc (rbx-adhoc-package package)))
+    (should (equal (rbx-runs-path package) "/p/.rbx/runs"))
+    (should (equal (rbx-runs-path adhoc) "/p/.rbx/runs/.irun"))
+    (should (equal (rbx-skeleton-path adhoc)
+                   "/p/.rbx/runs/.irun/skeleton.yml"))
+    (should (equal (rbx-report-path adhoc)
+                   "/p/.rbx/runs/.irun/report.yml"))
+    ;; rbx irun writes no group level under each solution.
+    (should (equal (rbx-run-artifact-path adhoc 1 "interactive" "000" ".out")
+                   "/p/.rbx/runs/.irun/1/000.out"))
+    (should (equal (rbx-run-artifact-path package 1 "main" "000" ".out")
+                   "/p/.rbx/runs/1/main/000.out"))
+    (should (equal (rbx-adhoc-input-path adhoc "000" ".in")
+                   "/p/.rbx/runs/.irun/inputs/000.in"))
+    ;; The stress session is never nested inside the ad-hoc run.
+    (should (equal (rbx-stress-path adhoc) "/p/.rbx/runs/.stress"))
+    ;; The original package is untouched.
+    (should-not (rbx-package-runs-subdir package))))
+
+(ert-deftest rbx-watcher-covers-the-irun-directories ()
+  (rbx-test-with-directory root
+    (make-directory (expand-file-name ".rbx/runs/.irun/0" root) t)
+    (make-directory (expand-file-name ".rbx/runs/.irun/inputs" root) t)
+    (let ((adhoc (rbx-adhoc-package
+                  (rbx-package-create
+                   :root (file-name-as-directory root) :build-dir "build"))))
+      (dolist (dir '(".rbx/runs/.irun" ".rbx/runs/.irun/0"
+                     ".rbx/runs/.irun/inputs"))
+        (should (member (expand-file-name dir root)
+                        (rbx--watchable-directories adhoc)))))))
+
+(ert-deftest rbx-stress-paths-follow-the-published-layout ()
+  (let ((package (rbx-package-create :root "/p/" :build-dir "build")))
+    (should (equal (rbx-stress-manifest-path package)
+                   "/p/.rbx/runs/.stress/stress.yml"))
+    (should (equal (rbx-stress-finding-path package 3 "input.in")
+                   "/p/.rbx/runs/.stress/findings/3/input.in"))))
+
+(ert-deftest rbx-watcher-covers-stress-finding-directories ()
+  (rbx-test-with-directory root
+    (make-directory (expand-file-name ".rbx/runs/.stress/findings/1" root) t)
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (dolist (dir '(".rbx/runs/.stress" ".rbx/runs/.stress/findings"
+                     ".rbx/runs/.stress/findings/1"))
+        (should (member (expand-file-name dir root)
+                        (rbx--watchable-directories package)))))))
+
+(ert-deftest rbx-watcher-covers-the-statement-report-directory ()
+  (rbx-test-with-directory root
+    (make-directory (expand-file-name ".rbx/statements" root) t)
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (should (equal (rbx-statement-report-path package)
+                     (expand-file-name ".rbx/statements/report.yml" root)))
+      (should (member (expand-file-name ".rbx/statements" root)
+                      (rbx--watchable-directories package))))))
+
+(ert-deftest rbx-artifact-event-p-accepts-the-preset-environment-file ()
+  (should (rbx--artifact-event-p
+           '(1 changed "/p/.local.rbx/env.rbx.yml")))
+  (should (rbx--artifact-event-p
+           '(1 changed "/p/.rbx/runs/0/main/000.eval"))))
+
 (ert-deftest rbx-watch-contest-invokes-callback-with-the-changed-package ()
   (rbx-test-with-directory root
     (let* ((root-a (file-name-as-directory (expand-file-name "A" root)))
@@ -187,7 +335,7 @@
                  (list package-a package-b)
                  (lambda (package) (push package notified))))
           (should (= (length notifications) 2))
-          (let ((for-b (cdr (assoc root-b notifications))))
+          (let ((for-b (cdr (assoc (directory-file-name root-b) notifications))))
             (funcall for-b '(1 changed "/tmp/B/.rbx/runs/report.yml")))
           (sleep-for 0.01)
           (should (equal notified (list package-b)))

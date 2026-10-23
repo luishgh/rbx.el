@@ -91,3 +91,21 @@ of never invoking rbx (see `AGENTS.md`).
       per solution, distinct from the inline match-marker glyphs
       (`rbx--match-marker`) already shown in the heading text
       (left-fringe overlays via `rbx--insert-solution-fringe`).
+
+## Statement preview
+
+- [x] Read `.rbx/statements/report.yml` (versioned, tolerant of unknown
+      versions), watch its directory, preview built outputs with
+      auto-revert, and list located build findings in `compilation-mode`.
+
+## Stress findings
+
+- [x] Read `.rbx/runs/.stress/stress.yml` (versioned) and the per-finding
+      files, watch the finding directories, and browse them read-only in
+      `rbx-stress-view`.
+
+## Ad-hoc runs
+
+- [x] `rbx-adhoc-run-view` reads `.rbx/runs/.irun/` through the run view by
+      giving the package a `runs-subdir`; the watcher covers it and
+      `irun` inputs resolve from `.irun/inputs/`.

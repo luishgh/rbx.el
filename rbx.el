@@ -232,10 +232,6 @@ reading it, since reading YAML is exactly what needs yq."
                (when (buffer-live-p buffer)
                  (with-current-buffer buffer
                    (when rbx-mode
-                     ;; Re-register after directory creation so a run that
-                     ;; started from an empty package becomes recursively
-                     ;; visible without polling.
-                     (rbx--start-artifact-watcher)
                      (when rbx-compilation-diagnostics
                        (flymake-start))
                      (when rbx-statement-var-hints

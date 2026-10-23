@@ -125,6 +125,35 @@ allowed to go on to twice TIME before being killed."
   "One declared statement entry in a problem manifest."
   language title file type)
 
+(cl-defstruct (rbx-statement-finding
+               (:constructor rbx-statement-finding-create))
+  "One located problem in a statement build."
+  origin severity message file line context)
+
+(cl-defstruct (rbx-statement-output
+               (:constructor rbx-statement-output-create))
+  "One statement output recorded in the statement build report."
+  kind name language variant format path source status seconds findings log)
+
+(cl-defstruct (rbx-statement-report
+               (:constructor rbx-statement-report-create))
+  "The statement build report."
+  outputs)
+
+(cl-defstruct (rbx-stress-result (:constructor rbx-stress-result-create))
+  "How one solution fared on a stress finding."
+  solution outcome time memory)
+
+(cl-defstruct (rbx-stress-finding (:constructor rbx-stress-finding-create))
+  "One counterexample found by a stress session.
+GENERATOR is the expanded call, seed included, as one string."
+  index generator duration results)
+
+(cl-defstruct (rbx-stress (:constructor rbx-stress-create))
+  "A stress session as published in the stress manifest."
+  state name generator finder fuzz slowest timeout findings-limit timelimit
+  double-tl started-at elapsed executed skipped solutions findings pid host)
+
 (cl-defstruct (rbx-contest (:constructor rbx-contest-create))
   "A parsed rbx contest manifest.
 
@@ -568,6 +597,105 @@ extension hints variables in both."
                    (rbx--wire-sequence (rbx--model-field raw "statements"))
                    (rbx--wire-sequence (rbx--model-field raw "tutorials")))))))
 
+(defconst rbx-statement-report-version 1
+  "The statement build report version this reader understands.")
+
+(defun rbx--parse-statement-finding (raw)
+  "Parse RAW as an `rbx-statement-finding', or nil without a message."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (message (rbx--model-string raw "message")))
+    (rbx-statement-finding-create
+     :origin (rbx--model-string raw "origin")
+     :severity (or (rbx--model-string raw "severity") "error")
+     :message message
+     :file (rbx--model-string raw "file")
+     :line (let ((line (rbx--model-number raw "line")))
+             (and line (truncate line)))
+     :context (rbx--model-string raw "context"))))
+
+(defun rbx--parse-statement-output (raw)
+  "Parse RAW as an `rbx-statement-output', or nil without a path."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (path (rbx--model-string raw "path")))
+    (rbx-statement-output-create
+     :kind (or (rbx--model-string raw "kind") "statement")
+     :name (rbx--model-string raw "name")
+     :language (rbx--model-string raw "language")
+     :variant (rbx--model-string raw "variant")
+     :format (rbx--model-string raw "format")
+     :path path
+     :source (rbx--model-string raw "source")
+     :status (or (rbx--model-string raw "status") "ok")
+     :seconds (rbx--model-number raw "seconds")
+     :findings (delq nil (mapcar #'rbx--parse-statement-finding
+                                 (rbx--wire-sequence
+                                  (rbx--model-field raw "findings"))))
+     :log (rbx--model-string raw "log"))))
+
+(defun rbx-parse-statement-report (raw)
+  "Parse RAW as a statement build report, or nil for an unknown version."
+  (when (and (rbx--wire-mapping-p raw)
+             (equal (rbx--model-number raw "version")
+                    rbx-statement-report-version))
+    (rbx-statement-report-create
+     :outputs (delq nil (mapcar #'rbx--parse-statement-output
+                                (rbx--wire-sequence
+                                 (rbx--model-field raw "outputs")))))))
+
+(defconst rbx-stress-version 1
+  "The stress manifest version this reader understands.")
+
+(defun rbx--parse-stress-result (raw)
+  "Parse RAW as an `rbx-stress-result', or nil without a solution index."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (solution (rbx--model-number raw "solution")))
+    (rbx-stress-result-create
+     :solution (truncate solution)
+     :outcome (rbx--model-string raw "outcome")
+     :time (rbx--model-number raw "time")
+     :memory (rbx--model-number raw "memory"))))
+
+(defun rbx--parse-stress-finding (raw)
+  "Parse RAW as an `rbx-stress-finding', or nil without an index."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (index (rbx--model-number raw "index")))
+    (let ((name (rbx--model-string raw "generator" "name"))
+          (args (rbx--model-string raw "generator" "args")))
+      (rbx-stress-finding-create
+       :index (truncate index)
+       :generator (string-join (delq nil (list name args)) " ")
+       :duration (rbx--model-number raw "duration")
+       :results (delq nil (mapcar #'rbx--parse-stress-result
+                                  (rbx--wire-sequence
+                                   (rbx--model-field raw "results"))))))))
+
+(defun rbx-parse-stress (raw)
+  "Parse RAW as a stress manifest, or nil for an unknown version or state."
+  (when (and (rbx--wire-mapping-p raw)
+             (equal (rbx--model-number raw "version") rbx-stress-version))
+    (when-let* ((state (rbx--model-string raw "state")))
+      (rbx-stress-create
+       :state state
+       :name (rbx--model-string raw "spec" "name")
+       :generator (rbx--model-string raw "spec" "generator")
+       :finder (rbx--model-string raw "spec" "finder")
+       :fuzz (rbx--model-strings raw "spec" "fuzz")
+       :slowest (rbx--model-boolean raw '("spec" "slowest") nil)
+       :timeout (rbx--model-number raw "spec" "timeout")
+       :findings-limit (rbx--model-number raw "spec" "findingsLimit")
+       :timelimit (rbx--model-number raw "spec" "timelimit")
+       :double-tl (rbx--model-boolean raw '("spec" "doubleTL") nil)
+       :started-at (rbx--model-string raw "startedAt")
+       :elapsed (rbx--model-number raw "elapsed")
+       :executed (rbx--model-number raw "executed")
+       :skipped (rbx--model-number raw "skipped")
+       :solutions (rbx--model-strings raw "solutions")
+       :findings (delq nil (mapcar #'rbx--parse-stress-finding
+                                   (rbx--wire-sequence
+                                    (rbx--model-field raw "findings"))))
+       :pid (let ((pid (rbx--model-number raw "pid"))) (and pid (truncate pid)))
+       :host (rbx--model-string raw "host")))))
+
 (defun rbx-testset-testcases (testset)
   "Join TESTSET entries to their build-time metadata."
   (let ((by-key (make-hash-table :test #'equal)))
@@ -644,6 +772,15 @@ no testcases is omitted."
 (defun rbx-load-report (package)
   "Read PACKAGE's current supported run report."
   (rbx--load-artifact (rbx-report-path package) #'rbx-parse-report))
+
+(defun rbx-load-statement-report (package)
+  "Read PACKAGE's statement build report."
+  (rbx--load-artifact (rbx-statement-report-path package)
+                      #'rbx-parse-statement-report))
+
+(defun rbx-load-stress (package)
+  "Read PACKAGE's latest stress session."
+  (rbx--load-artifact (rbx-stress-manifest-path package) #'rbx-parse-stress))
 
 (defun rbx-load-evaluation (package solution-index testcase)
   "Read one evaluation for PACKAGE, SOLUTION-INDEX, and TESTCASE."

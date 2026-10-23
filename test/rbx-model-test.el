@@ -133,6 +133,28 @@
     (should-not (rbx-solution-report-time-limit report))
     (should-not (rbx-solution-report-untuned-limits-suspected report))))
 
+(ert-deftest rbx-load-report-survives-a-half-written-file ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build"))
+          (path ".rbx/runs/report.yml"))
+      (rbx-reset-artifact-cache)
+      (rbx-test-write root path "version: 1\nsolutions: [\n  - path: a.cpp\n")
+      (should-not (rbx-load-report package))
+      ;; The finished write must be picked up even though the broken parse
+      ;; happened first and the file kept its name.
+      (rbx-test-write
+       root path
+       (concat "version: 1\nsolutions:\n  - path: a.cpp\n    index: 0\n"
+               "    outcome: accepted\n"))
+      (let ((report (rbx-load-report package)))
+        (should report)
+        (should (= (length (rbx-run-report-solutions report)) 1)))
+      ;; And a later torn rewrite drops the stale report rather than
+      ;; showing the previous run's verdicts for the new one.
+      (rbx-test-write root path "version: 1\nsolutions: [\n")
+      (should-not (rbx-load-report package)))))
+
 (ert-deftest rbx-load-evaluation-caches-unchanged-artifact ()
   (rbx-test-with-directory root
     (let* ((package (rbx-package-create
@@ -457,6 +479,100 @@
                 package (expand-file-name "statement/statement.rbx.tex" root)))
         (should-not (rbx-package-statement-p
                     package (expand-file-name "other.tex" root)))))))
+
+(ert-deftest rbx-parse-statement-report-reads-outputs-and-findings ()
+  (let* ((report (rbx-parse-statement-report
+                  '(("version" . 1)
+                    ("outputs"
+                     . ((("kind" . "statement") ("language" . "en")
+                         ("format" . "pdf") ("path" . "build/statement-en.pdf")
+                         ("source" . "statement/statement.rbx.tex")
+                         ("status" . "failed") ("seconds" . 1.5)
+                         ("findings"
+                          . ((("origin" . "latex") ("severity" . "error")
+                              ("message" . "Undefined control sequence.")
+                              ("file" . "statement/statement.rbx.tex")
+                              ("line" . 12) ("context" . "\\foo")))))
+                        (("kind" . "tutorial") ("format" . "pdf")
+                         ("path" . "build/tutorial-en.pdf")
+                         ("status" . "ok")))))))
+         (outputs (rbx-statement-report-outputs report))
+         (failed (car outputs))
+         (finding (car (rbx-statement-output-findings failed))))
+    (should (= (length outputs) 2))
+    (should (equal (rbx-statement-output-path failed)
+                   "build/statement-en.pdf"))
+    (should (equal (rbx-statement-output-status failed) "failed"))
+    (should (equal (rbx-statement-finding-file finding)
+                   "statement/statement.rbx.tex"))
+    (should (= (rbx-statement-finding-line finding) 12))
+    (should (equal (rbx-statement-finding-severity finding) "error"))
+    (should (equal (rbx-statement-output-status (cadr outputs)) "ok"))))
+
+(ert-deftest rbx-parse-statement-report-ignores-unknown-versions ()
+  (should-not (rbx-parse-statement-report
+               '(("version" . 2) ("outputs" . ((("path" . "x.pdf"))))))))
+
+(ert-deftest rbx-parse-statement-report-drops-outputs-without-a-path ()
+  (let ((report (rbx-parse-statement-report
+                 '(("version" . 1)
+                   ("outputs" . ((("kind" . "statement"))))))))
+    (should-not (rbx-statement-report-outputs report))))
+
+(defconst rbx-test--stress-raw
+  '(("version" . 1) ("state" . "done") ("startedAt" . "2026-10-20T10:00:00Z")
+    ("elapsed" . 12.5) ("executed" . 40) ("skipped" . 3)
+    ("pid" . 42) ("host" . "box")
+    ("spec" . (("name" . "wa-hunt") ("generator" . "gen 1 10")
+               ("finder" . "[sols/a.cpp] ~ INCORRECT") ("slowest" . :false)
+               ("timeout" . 10) ("findingsLimit" . 5) ("timelimit" . 1000)
+               ("doubleTL" . t) ("fuzz" . ("main"))))
+    ("solutions" . ("sols/main.cpp" "sols/a.cpp"))
+    ("findings"
+     . ((("index" . 1) ("duration" . 80)
+         ("generator" . (("name" . "gen") ("args" . "1 10 --seed=7")))
+         ("results" . ((("solution" . 1) ("outcome" . "wrong-answer")
+                        ("time" . 0.12) ("memory" . 2048)))))
+        (("index" . 2)
+         ("generator" . (("name" . "gen")))))))
+  "A stress manifest as the YAML reader delivers it.")
+
+(ert-deftest rbx-parse-stress-reads-session-and-findings ()
+  (let* ((stress (rbx-parse-stress rbx-test--stress-raw))
+         (finding (car (rbx-stress-findings stress)))
+         (result (car (rbx-stress-finding-results finding))))
+    (should (equal (rbx-stress-state stress) "done"))
+    (should (equal (rbx-stress-name stress) "wa-hunt"))
+    (should (equal (rbx-stress-finder stress) "[sols/a.cpp] ~ INCORRECT"))
+    (should (= (rbx-stress-executed stress) 40))
+    (should (= (rbx-stress-skipped stress) 3))
+    (should (rbx-stress-double-tl stress))
+    (should (= (rbx-stress-timelimit stress) 1000))
+    (should (equal (rbx-stress-fuzz stress) '("main")))
+    (should (equal (rbx-stress-solutions stress)
+                   '("sols/main.cpp" "sols/a.cpp")))
+    (should (= (length (rbx-stress-findings stress)) 2))
+    (should (= (rbx-stress-finding-index finding) 1))
+    (should (equal (rbx-stress-finding-generator finding)
+                   "gen 1 10 --seed=7"))
+    (should (= (rbx-stress-finding-duration finding) 80))
+    (should (= (rbx-stress-result-solution result) 1))
+    (should (equal (rbx-stress-result-outcome result) "wrong-answer"))
+    (should (= (rbx-stress-result-memory result) 2048))
+    (should (equal (rbx-stress-finding-generator
+                    (cadr (rbx-stress-findings stress)))
+                   "gen"))))
+
+(ert-deftest rbx-parse-stress-ignores-unknown-versions-and-bad-states ()
+  (should-not (rbx-parse-stress '(("version" . 2) ("state" . "done"))))
+  (should-not (rbx-parse-stress '(("version" . 1)))))
+
+(ert-deftest rbx-parse-stress-skips-findings-without-an-index ()
+  (let ((stress (rbx-parse-stress
+                 '(("version" . 1) ("state" . "running")
+                   ("findings" . ((("generator" . (("name" . "g")))))
+                   )))))
+    (should-not (rbx-stress-findings stress))))
 
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here
