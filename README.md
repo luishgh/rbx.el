@@ -37,6 +37,9 @@ extension calls them the same way.
 - Jump straight to a testcase's generator script line or copied-from
   source, and to a testset testcase's validator source.
 - Native unified diffs of solution output against the expected answer.
+- Interactive problems: the interactor/solution transcript (payload only,
+  with a margin label saying who wrote each line), the interactor's stderr and
+  log, and the checker's full stderr (when kept with `--keep-checker-stderr`).
 - Sticky output/stderr/log selection and persistent testcase windows: after the
   first split, your window arrangement is reused.
 - Multi-problem discovery and selection for contest projects, naming problems
@@ -142,7 +145,8 @@ evil's own `g`-prefixed motions (`gg`, `G`, ...), and refresh moves to `g r`.
 On a testcase, `RET` opens the input and a second pane. For run testcases that
 pane contains an output-versus-answer diff; for built tests it contains the
 expected answer. The Transient can switch the second pane between output,
-stderr, and the run log. The choice stays active while you inspect other tests.
+stderr, the run log, and, for interactive problems, the interaction
+transcript, interactor stderr/log, and checker stderr (`4`-`7`). The choice stays active while you inspect other tests.
 `m` opens a dedicated info card with the testcase's origin and the full,
 wrapped checker or validator message; `s` jumps to the generator script line
 or copied-from source behind it; `V` opens a testset testcase's validator

@@ -943,9 +943,6 @@
       (should-not rbx--fringe-overlays)
       (should-not (overlays-in (point-min) (point-max))))))
 
-(provide 'rbx-ui-test)
-;;; rbx-ui-test.el ends here
-
 (ert-deftest rbx-open-visualization-ignores-nonstandard-source-names ()
   ;; rbx copies a user-named sample (samples/dag.in) to NNN.in and records
   ;; the visualization path in the manifest; the source name must not matter.
@@ -1148,3 +1145,56 @@ STEM is the generated testcase basename, defaulting to \"000\"."
                                  :type 'user-error)))
         (should (string-match-p "rbx build --visualize"
                                 (error-message-string error)))))))
+
+(ert-deftest rbx-parse-interaction-reads-prefixes-from-the-header ()
+  (should (equal (rbx--parse-interaction
+                  "<\n>\n<3\n>? 1\n>? 2\n!debug\n>! 3\n")
+                 '((interactor . "3") (solution . "? 1") (solution . "? 2")
+                   (stderr . "debug") (solution . "! 3"))))
+  (should (equal (rbx--parse-interaction "I:\nS:\nI:hi\nS:yo\n")
+                 '((interactor . "hi") (solution . "yo")))))
+
+(ert-deftest rbx-parse-interaction-skips-blank-lines-and-tolerates-garbage ()
+  (should (equal (rbx--parse-interaction "<\n>\n<a\n\n>b\n")
+                 '((interactor . "a") (solution . "b"))))
+  (should-not (rbx--parse-interaction ""))
+  (should-not (rbx--parse-interaction "<\n")))
+
+(ert-deftest rbx-context-path-names-interaction-and-judge-channels ()
+  (let* ((package (rbx-package-create :root "/p/" :build-dir "build"))
+         (context (list :kind 'run-testcase :package package
+                        :solution-index 2
+                        :testcase (rbx-testcase-create
+                                   :group "main" :index 0
+                                   :input-path "build/tests/main/dag.in"))))
+    (cl-flet ((rel (channel)
+                (file-relative-name (rbx--context-path context channel) "/p/")))
+      (should (equal (rel 'interaction) ".rbx/runs/2/main/dag.pio"))
+      (should (equal (rel 'interactor-stderr) ".rbx/runs/2/main/dag.int.err"))
+      (should (equal (rel 'interactor-log) ".rbx/runs/2/main/dag.int.log"))
+      (should (equal (rel 'checker-stderr)
+                     ".rbx/runs/2/main/dag.checker.err")))))
+
+(ert-deftest rbx-interaction-buffer-shows-payload-only-with-margin-labels ()
+  (rbx-test-with-directory root
+    (let ((path (rbx-test-write root "dag.pio" "<\n>\n<3\n>? 1\n!oops\n")))
+      (let ((buffer (rbx--interaction-buffer path)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (equal (buffer-string) "3\n? 1\noops\n"))
+              (should buffer-read-only)
+              (should (get-text-property (point-min) 'line-prefix))
+              (should-not (equal
+                           (get-text-property (point-min) 'line-prefix)
+                           (get-text-property (+ (point-min) 4)
+                                              'line-prefix))))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-interaction-channel-explains-a-missing-capture ()
+  (let ((err (should-error (rbx--read-only-file-buffer
+                            "/nonexistent/dag.pio"
+                            "No interaction recorded; run with `rbx -cp run'."))))
+    (should (string-match-p "rbx -cp run" (cadr err)))))
+
+(provide 'rbx-ui-test)
+;;; rbx-ui-test.el ends here

@@ -1375,7 +1375,16 @@ current view, or the nearest contest to `default-directory'."
            ('expected (rbx-test-artifact-path package group stem ".out"))
            ('output (rbx-run-artifact-path package index group stem ".out"))
            ('stderr (rbx-run-artifact-path package index group stem ".err"))
-           ('log (rbx-run-artifact-path package index group stem ".log")))))
+           ('log (rbx-run-artifact-path package index group stem ".log"))
+           ('interaction
+            (rbx-run-artifact-path package index group stem ".pio"))
+           ('interactor-stderr
+            (rbx-run-artifact-path package index group stem ".int.err"))
+           ('interactor-log
+            (rbx-run-artifact-path package index group stem ".int.log"))
+           ('checker-stderr
+            (rbx-run-artifact-path package index group stem
+                                   ".checker.err")))))
       ('testset-testcase
        (let* ((testcase (plist-get context :testcase))
               (entry (rbx-testset-testcase-entry testcase))
@@ -1385,10 +1394,13 @@ current view, or the nearest contest to `default-directory'."
            ('input (rbx-test-artifact-path package group stem ".in"))
            ('expected (rbx-test-artifact-path package group stem ".out"))))))))
 
-(defun rbx--read-only-file-buffer (path)
-  "Visit PATH and return its buffer with editing disabled."
+(defun rbx--read-only-file-buffer (path &optional missing)
+  "Visit PATH and return its buffer with editing disabled.
+MISSING, when non-nil, is the message to signal if PATH is unreadable."
   (unless (and path (file-readable-p path))
-    (user-error "Artifact is not available: %s" (or path "unknown")))
+    (user-error "%s" (or missing
+                         (format "Artifact is not available: %s"
+                                 (or path "unknown")))))
   (let ((buffer (find-file-noselect path)))
     (with-current-buffer buffer
       (view-mode 1))
@@ -1406,6 +1418,68 @@ current view, or the nearest contest to `default-directory'."
          (buffer (get-buffer-create (format "*rbx diff: %s*" stem))))
     (diff-no-select expected actual "-u" t buffer)))
 
+;;;; Interaction transcript
+
+(defun rbx--parse-interaction (text)
+  "Parse the interaction capture TEXT into a list of (PIPE . DATA).
+
+PIPE is `interactor', `solution' or `stderr'.  As in rbx's own `.pio'
+files, the first two lines name the interactor's and the solution's line
+prefixes; a line starting with ! is the solution's stderr folded in.
+Blank and unrecognized lines are skipped."
+  (let* ((lines (split-string text "\r?\n"))
+         (interactor (string-trim (or (nth 0 lines) "")))
+         (solution (string-trim (or (nth 1 lines) "")))
+         entries)
+    (unless (or (string-empty-p interactor) (string-empty-p solution))
+      (dolist (line (nthcdr 2 lines))
+        (cond
+         ((string-empty-p line))
+         ((string-prefix-p "!" line)
+          (push (cons 'stderr (string-trim-right (substring line 1))) entries))
+         ((string-prefix-p interactor line)
+          (push (cons 'interactor
+                      (string-trim-right
+                       (substring line (length interactor))))
+                entries))
+         ((string-prefix-p solution line)
+          (push (cons 'solution
+                      (string-trim-right (substring line (length solution))))
+                entries)))))
+    (nreverse entries)))
+
+(defconst rbx--interaction-pipes
+  '((interactor "int │ " rbx-hue-blue)
+    (solution "sol │ " rbx-hue-green)
+    (stderr "err │ " rbx-hue-dim))
+  "Margin label and face for each pipe of an interaction transcript.")
+
+(defun rbx--interaction-buffer (path)
+  "Return a read-only buffer rendering the interaction capture at PATH.
+Only the payload is inserted, so copying a line copies data; who wrote it
+is shown in a margin label that is not part of the text."
+  (unless (and path (file-readable-p path))
+    (user-error "%s" "No interaction recorded for this testcase.  Re-run with `rbx -cp run' to capture it"))
+  (let ((buffer (get-buffer-create
+                 (format "*rbx interaction: %s*"
+                         (file-name-base path))))
+        (entries (rbx--parse-interaction
+                  (with-temp-buffer
+                    (insert-file-contents path)
+                    (buffer-string)))))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (pcase-dolist (`(,pipe . ,data) entries)
+          (pcase-let ((`(,label ,face) (alist-get pipe rbx--interaction-pipes)))
+            (insert (propertize
+                     (concat data "\n")
+                     'line-prefix (propertize label 'face face)
+                     'wrap-prefix (propertize label 'face face)))))
+        (goto-char (point-min)))
+      (setq buffer-read-only t))
+    buffer))
+
 (defun rbx--result-buffer (context)
   "Return the secondary inspection buffer for CONTEXT."
   (pcase rbx--testcase-channel
@@ -1418,6 +1492,21 @@ current view, or the nearest contest to `default-directory'."
     ('stderr (rbx--read-only-file-buffer
               (rbx--context-path context 'stderr)))
     ('log (rbx--read-only-file-buffer (rbx--context-path context 'log)))
+    ('interaction
+     (rbx--interaction-buffer
+      (rbx--context-path context 'interaction)))
+    ('interactor-stderr
+     (rbx--read-only-file-buffer
+      (rbx--context-path context 'interactor-stderr)
+      "The interactor wrote nothing to stderr for this testcase."))
+    ('interactor-log
+     (rbx--read-only-file-buffer
+      (rbx--context-path context 'interactor-log)
+      "rbx recorded no interactor log for this testcase."))
+    ('checker-stderr
+     (rbx--read-only-file-buffer
+      (rbx--context-path context 'checker-stderr)
+      "No checker stderr kept for this testcase.  Re-run with `rbx run --keep-checker-stderr' to keep it."))
     (_ (user-error "Unknown testcase channel"))))
 
 (defun rbx--display-testcase (context)
@@ -1476,6 +1565,26 @@ current view, or the nearest contest to `default-directory'."
   "Show the run log for the current testcase."
   (interactive)
   (rbx--show-channel 'log))
+
+(defun rbx-show-interaction ()
+  "Show the interactor/solution transcript for the current testcase."
+  (interactive)
+  (rbx--show-channel 'interaction))
+
+(defun rbx-show-interactor-stderr ()
+  "Show the interactor's stderr for the current testcase."
+  (interactive)
+  (rbx--show-channel 'interactor-stderr))
+
+(defun rbx-show-interactor-log ()
+  "Show the interactor's run log for the current testcase."
+  (interactive)
+  (rbx--show-channel 'interactor-log))
+
+(defun rbx-show-checker-stderr ()
+  "Show the checker's full stderr for the current testcase."
+  (interactive)
+  (rbx--show-channel 'checker-stderr))
 
 (defun rbx-open-input ()
   "Open the input artifact at point read-only."
@@ -1662,7 +1771,12 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
    ["Sticky testcase channel"
     ("1" "Output vs answer" rbx-show-output :if-mode rbx-view-mode)
     ("2" "Stderr" rbx-show-stderr :if-mode rbx-view-mode)
-    ("3" "Log" rbx-show-log :if-mode rbx-view-mode)]])
+    ("3" "Log" rbx-show-log :if-mode rbx-view-mode)
+    ("4" "Interaction" rbx-show-interaction :if-mode rbx-view-mode)
+    ("5" "Interactor stderr" rbx-show-interactor-stderr
+     :if-mode rbx-view-mode)
+    ("6" "Interactor log" rbx-show-interactor-log :if-mode rbx-view-mode)
+    ("7" "Checker stderr" rbx-show-checker-stderr :if-mode rbx-view-mode)]])
 
 (provide 'rbx-ui)
 ;;; rbx-ui.el ends here
