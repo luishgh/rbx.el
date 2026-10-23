@@ -519,11 +519,15 @@ Mirrors rbx's own default of `./{short_name}/' when no PATH is declared."
      :type (rbx--model-string raw "type"))))
 
 (defun rbx-parse-problem-statements (raw)
-  "Parse RAW (a problem manifest mapping) as a list of `rbx-problem-statement'."
+  "Parse RAW (a problem manifest mapping) as a list of `rbx-problem-statement'.
+Tutorials are included: rbx renders them like statements, and the VS Code
+extension hints variables in both."
   (when (rbx--wire-mapping-p raw)
     (delq nil
           (mapcar #'rbx--parse-problem-statement
-                  (rbx--wire-sequence (rbx--model-field raw "statements"))))))
+                  (append
+                   (rbx--wire-sequence (rbx--model-field raw "statements"))
+                   (rbx--wire-sequence (rbx--model-field raw "tutorials")))))))
 
 (defun rbx-testset-testcases (testset)
   "Join TESTSET entries to their build-time metadata."

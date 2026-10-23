@@ -373,6 +373,15 @@
                     "statement/statement.rbx.tex"))
       (should (equal (rbx-problem-statement-type statement) "rbxTeX")))))
 
+(ert-deftest rbx-parse-problem-statements-includes-tutorials ()
+  (let ((statements (rbx-parse-problem-statements
+                     '(("statements" . ((("language" . "en")
+                                         ("file" . "statement.rbx.tex"))))
+                       ("tutorials" . ((("language" . "en")
+                                        ("file" . "tutorial.rbx.tex"))))))))
+    (should (equal (mapcar #'rbx-problem-statement-file statements)
+                   '("statement.rbx.tex" "tutorial.rbx.tex")))))
+
 (ert-deftest rbx-parse-problem-statements-requires-a-file ()
   (should-not (rbx-parse-problem-statements
               '(("statements" . ((("language" . "en"))))))))
