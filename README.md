@@ -40,6 +40,11 @@ extension calls them the same way.
 - Interactive problems: the interactor/solution transcript (payload only,
   with a margin label saying who wrote each line), the interactor's stderr and
   log, and the checker's full stderr (when kept with `--keep-checker-stderr`).
+- Times and memory read against the limits each solution actually ran under:
+  the run header lists the per-language limits (and limits profile), hovering
+  a time or memory shows its limit, runs killed at the expanded limit read
+  `>2000 ms` as in `rbx run`, and a notice suggests `rbx time` when rbx suspects
+  the limits are untuned.
 - `z M` / `z R` collapse or expand every section of a view.
 - Sticky output/stderr/log selection and persistent testcase windows: after the
   first split, your window arrangement is reused.

@@ -1215,5 +1215,80 @@ STEM is the generated testcase basename, defaulting to \"000\"."
         (rbx-expand-all)
         (should-not (invisible-p (match-beginning 0)))))))
 
+(ert-deftest rbx-measured-time-hovers-the-limit-it-is-read-against ()
+  (let* ((limits (rbx-limits-create :time 1000 :double-tl t))
+         (text (rbx--measured-time 0.194 "accepted" nil limits)))
+    (should (equal text "194 ms"))
+    (should (equal (get-text-property 0 'help-echo text)
+                   "194 ms of a 1000 ms time limit")))
+  (should-not (get-text-property
+               0 'help-echo (rbx--measured-time 0.194 "accepted" nil nil)))
+  (should-not (rbx--measured-time nil "accepted" nil nil)))
+
+(ert-deftest rbx-measured-time-caps-a-killed-run-at-the-expanded-limit ()
+  (let* ((limits (rbx-limits-create :time 1000 :double-tl t))
+         (text (rbx--measured-time 2.003 "time-limit-exceeded" nil limits)))
+    (should (equal text ">2000 ms"))
+    (should (string-match-p "Killed at 2000 ms"
+                            (get-text-property 0 'help-echo text))))
+  ;; A soft TLE finished below 2x: its time is a real measurement.
+  (should (equal (rbx--measured-time
+                  1.4 "time-limit-exceeded" nil
+                  (rbx-limits-create :time 1000 :double-tl t))
+                 "1400 ms"))
+  ;; The testcase's own recorded limits win over the solution's.
+  (should (equal (rbx--measured-time
+                  3.0 "time-limit-exceeded"
+                  (rbx-limits-create :time 1500)
+                  (rbx-limits-create :time 1000 :double-tl t))
+                 ">1500 ms")))
+
+(ert-deftest rbx-measured-memory-hovers-its-limit ()
+  (let ((text (rbx--measured-memory (* 5 1024 1024) 256)))
+    (should (equal text "5 MiB"))
+    (should (equal (get-text-property 0 'help-echo text)
+                   "5 MiB of a 256 MiB memory limit")))
+  (should (equal (rbx--measured-memory 2048 nil) "2 KiB")))
+
+(ert-deftest rbx-limit-lines-describe-each-language ()
+  (should (equal (rbx--limit-lines
+                  (list (cons "cpp" (rbx-limits-create
+                                     :time 1000 :memory 256 :double-tl t))
+                        (cons "py" (rbx-limits-create
+                                    :memory 512 :profile "slow"))))
+                 '("cpp: 1000 ms (2×TL), 256 MiB"
+                   "py: no time limit, 512 MiB [slow]"))))
+
+(ert-deftest rbx-run-view-header-lists-limits-and-the-untuned-notice ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (rbx-test-write
+     root ".rbx/runs/skeleton.yml"
+     (concat
+      "solutions:\n  - path: sols/ac.cpp\n    outcome: ACCEPTED\n"
+      "    limits: {time: 1000, memory: 256, isDoubleTL: true}\n"
+      "groups:\n  - name: main\n    score: 100\n"
+      "entries:\n  - group_entry: {group: main, index: 0}\n"
+      "limits:\n  cpp: {time: 1000, memory: 256, isDoubleTL: true}\n"))
+    (rbx-test-write
+     root ".rbx/runs/report.yml"
+     (concat
+      "version: 1\nsolutions:\n  - path: sols/ac.cpp\n    index: 0\n"
+      "    expectedOutcome: ACCEPTED\n    outcome: time-limit-exceeded\n"
+      "    status: OK\n    matchesExpectation: false\n    timeLimit: 1.0\n"
+      "    untunedLimitsSuspected: true\n    score: 0\n    maxScore: 100\n"
+      "    failedGroups: []\n    groups: []\n"))
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'run)
+        (rbx-refresh)
+        (should (string-match-p "cpp: 1000 ms (2×TL), 256 MiB"
+                                (buffer-string)))
+        (should (string-match-p "limits look untuned.*rbx time"
+                                (buffer-string)))))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

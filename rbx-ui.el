@@ -355,6 +355,67 @@ Non-nil exactly when the current run view is following, per
      ((< bytes (* 1024 1024)) (format "%d KiB" (round (/ bytes 1024.0))))
      (t (format "%d MiB" (round (/ bytes 1048576.0)))))))
 
+(defun rbx--measured-time (seconds outcome own limits)
+  "Format SECONDS as a time measured under LIMITS, or nil without SECONDS.
+OUTCOME is the verdict of the run.  OWN are the limits recorded on the
+testcase itself, which win over the solution's LIMITS, the order rbx reads
+them in.  A slow run that reached the limit it was killed at is shown as
+`>N ms', like `rbx run' does, since its time is only when it was stopped.
+The limit the time is read against is in the `help-echo'."
+  (when seconds
+    (let* ((value (truncate (* seconds 1000)))
+           (killed-at (or (rbx-limits-expanded-time own)
+                          (rbx-limits-expanded-time limits)))
+           (limit (and limits (rbx-limits-time limits))))
+      (cond
+       ((and killed-at
+             (or (equal outcome "idleness-limit-exceeded")
+                 (and (equal outcome "time-limit-exceeded")
+                      (>= value killed-at))))
+        (propertize (format ">%d ms" killed-at)
+                    'help-echo
+                    (format "Killed at %d ms; the time it ran for is not a measurement."
+                            killed-at)))
+       (limit
+        (propertize (format "%d ms" value)
+                    'help-echo (format "%d ms of a %d ms time limit"
+                                       value limit)))
+       (t (format "%d ms" value))))))
+
+(defun rbx--measured-memory (bytes limit-mib)
+  "Format BYTES, with the memory limit LIMIT-MIB (MiB) in its `help-echo'."
+  (when-let* ((text (rbx-format-memory bytes)))
+    (if limit-mib
+        (propertize text 'help-echo
+                    (format "%s of a %s memory limit" text
+                            (rbx-format-memory (* limit-mib 1048576))))
+      text)))
+
+(defun rbx--solution-limits (solution report)
+  "Return the `rbx-limits' SOLUTION was judged under.
+Fall back to the time limit REPORT published when the skeleton predates
+per-solution limits."
+  (or (rbx-solution-limits solution)
+      (when-let* ((limit (and report (rbx-solution-report-time-limit report))))
+        (rbx-limits-create :time (round (* limit 1000))))))
+
+(defun rbx--limit-lines (table)
+  "Describe the per-language limits TABLE, one string per language."
+  (mapcar
+   (pcase-lambda (`(,language . ,limits))
+     (format "%s: %s, %s%s" language
+             (if-let* ((time (rbx-limits-time limits)))
+                 (format "%d ms%s" time
+                         (if (rbx-limits-double-tl limits) " (2×TL)" ""))
+               "no time limit")
+             (if-let* ((memory (rbx-limits-memory limits)))
+                 (rbx-format-memory (* memory 1048576))
+               "no memory limit")
+             (if-let* ((profile (rbx-limits-profile limits)))
+                 (format " [%s]" profile)
+               "")))
+   table))
+
 (defun rbx--format-size (bytes)
   "Format file size BYTES compactly."
   (rbx-format-memory bytes))
@@ -491,8 +552,9 @@ STATE is one of `rbx--row-state's values."
          entries)
         (length entries)))
 
-(defun rbx--insert-run-testcase (package solution entry evaluation)
-  "Insert ENTRY and its EVALUATION for SOLUTION in PACKAGE."
+(defun rbx--insert-run-testcase (package solution entry evaluation limits)
+  "Insert ENTRY and its EVALUATION for SOLUTION in PACKAGE.
+LIMITS are the `rbx-limits' SOLUTION was judged under."
   (let ((context (list :kind 'run-testcase
                        :package package
                        :solution solution
@@ -508,17 +570,22 @@ STATE is one of `rbx--row-state's values."
                (let ((meta
                       (and evaluation
                            (rbx--meta
-                            (rbx-format-time (rbx-evaluation-time evaluation))
-                            (rbx-format-memory
-                             (rbx-evaluation-memory evaluation))
+                            (rbx--measured-time
+                             (rbx-evaluation-time evaluation)
+                             (rbx-evaluation-outcome evaluation)
+                             (rbx-evaluation-limits evaluation) limits)
+                            (rbx--measured-memory
+                             (rbx-evaluation-memory evaluation)
+                             (and limits (rbx-limits-memory limits)))
                             (rbx-evaluation-message evaluation)
                             (and (rbx-evaluation-sanitizer-warnings evaluation)
                                  "sanitizer")))))
                  (if (string-empty-p (or meta "")) "" (concat "  " meta))))))))
 
 (defun rbx--insert-run-group
-    (package solution group entries solution-report)
-  "Insert GROUP and its ENTRIES for SOLUTION in PACKAGE."
+    (package solution group entries solution-report limits)
+  "Insert GROUP and its ENTRIES for SOLUTION in PACKAGE.
+LIMITS are the `rbx-limits' SOLUTION was judged under."
   (let* ((group-report (rbx--report-for-group solution-report group))
          (warning
           (and group-report
@@ -548,10 +615,12 @@ STATE is one of `rbx--row-state's values."
                     (rbx--meta
                      (rbx--score (rbx-group-report-score group-report)
                                  (rbx-group-report-max-score group-report))
-                     (rbx-format-time
-                      (rbx-group-report-max-time group-report))
-                     (rbx-format-memory
-                      (rbx-group-report-max-memory group-report))))
+                     (rbx--measured-time
+                      (rbx-group-report-max-time group-report)
+                      (rbx-group-report-outcome group-report) nil limits)
+                     (rbx--measured-memory
+                      (rbx-group-report-max-memory group-report)
+                      (and limits (rbx-limits-memory limits)))))
             (rbx--row-state
              (rbx-group-report-matches-expectation group-report)
              warning))
@@ -561,7 +630,8 @@ STATE is one of `rbx--row-state's values."
           (rbx--insert-run-testcase
            package solution entry
            (rbx-load-evaluation package (rbx-solution-index solution)
-                                entry)))))))
+                                entry)
+           limits))))))
 
 (defun rbx--insert-solution
     (package skeleton report solution groups entries-by-group)
@@ -579,6 +649,7 @@ STATE is one of `rbx--row-state's values."
                     (rbx--row-state
                      (rbx-solution-report-matches-expectation solution-report)
                      warning)))
+         (limits (rbx--solution-limits solution solution-report))
          (context (list :kind 'solution :package package :solution solution)))
     (magit-insert-section (rbx-solution-section context)
       (magit-insert-heading
@@ -599,10 +670,13 @@ STATE is one of `rbx--row-state's values."
                     (rbx--meta
                      (rbx--score (rbx-solution-report-score solution-report)
                                  (rbx-solution-report-max-score solution-report))
-                     (rbx-format-time
-                      (rbx-solution-report-max-time solution-report))
-                     (rbx-format-memory
-                      (rbx-solution-report-max-memory solution-report))
+                     (rbx--measured-time
+                      (rbx-solution-report-max-time solution-report)
+                      (rbx-solution-report-outcome solution-report)
+                      nil limits)
+                     (rbx--measured-memory
+                      (rbx-solution-report-max-memory solution-report)
+                      (and limits (rbx-limits-memory limits)))
                      (unless
                          (equal (rbx-solution-report-status solution-report)
                                 "OK")
@@ -621,7 +695,7 @@ STATE is one of `rbx--row-state's values."
       (dolist (group groups)
         (rbx--insert-run-group
          package solution group (gethash group entries-by-group)
-         solution-report)))))
+         solution-report limits)))))
 
 (defun rbx--insert-compilation (package findings)
   "Insert compilation FINDINGS for PACKAGE."
@@ -673,6 +747,14 @@ STATE is one of `rbx--row-state's values."
                     package (abbreviate-file-name (rbx-package-root package)))
                    (if rbx--contest-watchers " · following" "")
                    (if (rbx-skeleton-sanitized skeleton) " · sanitized" "")))
+          (dolist (line (rbx--limit-lines (rbx-skeleton-limits skeleton)))
+            (insert (propertize (concat "  " line "\n") 'face 'shadow)))
+          (when (and report
+                     (seq-some #'rbx-solution-report-untuned-limits-suspected
+                               (rbx-run-report-solutions report)))
+            (insert (propertize
+                     "  limits look untuned to this machine; run `rbx time' to estimate them\n"
+                     'face 'rbx-row-warning)))
           (when (rbx-skeleton-only-accepted skeleton)
             (insert (propertize
                      "Showing accepted solutions only (sanitized run).\n"
