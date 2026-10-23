@@ -80,6 +80,59 @@
     (should (= (rbx-evaluation-memory evaluation) 4096))
     (should (rbx-evaluation-sanitizer-warnings evaluation))))
 
+(ert-deftest rbx-parse-limits-reads-camel-case-fields ()
+  (let ((limits (rbx--parse-limits
+                 '(("time" . 1000) ("configuredTime" . 1500) ("memory" . 256)
+                   ("output" . 4096) ("isDoubleTL" . t) ("profile" . "fast")))))
+    (should (= (rbx-limits-time limits) 1000))
+    (should (= (rbx-limits-configured-time limits) 1500))
+    (should (= (rbx-limits-memory limits) 256))
+    (should (rbx-limits-double-tl limits))
+    (should (equal (rbx-limits-profile limits) "fast"))
+    (should (= (rbx-limits-expanded-time limits) 2000))
+    (should-not (rbx-limits-expanded-time
+                 (rbx--parse-limits '(("memory" . 256)))))
+    (should-not (rbx--parse-limits nil))))
+
+(ert-deftest rbx-parse-skeleton-reads-limits-per-solution-and-language ()
+  (let ((skeleton
+         (rbx-parse-skeleton
+          '(("solutions" . ((("path" . "a.cpp") ("outcome" . "ACCEPTED")
+                             ("limits" . (("time" . 1000) ("isDoubleTL" . t))))
+                            (("path" . "b.py") ("outcome" . "ACCEPTED"))))
+            ("limits" . (("cpp" . (("time" . 1000) ("memory" . 256)))
+                         ("py" . (("time" . 3000) ("memory" . 256)))))))))
+    (should (= (rbx-limits-time
+                (rbx-solution-limits (car (rbx-skeleton-solutions skeleton))))
+               1000))
+    (should-not (rbx-solution-limits
+                 (cadr (rbx-skeleton-solutions skeleton))))
+    (should (equal (mapcar #'car (rbx-skeleton-limits skeleton))
+                   '("cpp" "py")))
+    (should (= (rbx-limits-time
+                (cdr (assoc "py" (rbx-skeleton-limits skeleton))))
+               3000))))
+
+(ert-deftest rbx-parse-evaluation-reads-its-own-limits-and-wall-time ()
+  (let ((evaluation
+         (rbx-parse-evaluation
+          '(("result" . (("outcome" . "time-limit-exceeded")))
+            ("log" . (("time" . 2.0) ("wall_time" . 2.1)
+                      ("metadata" . (("limits" . (("time" . 1000)
+                                                  ("isDoubleTL" . t)))))))))))
+    (should (= (rbx-limits-time (rbx-evaluation-limits evaluation)) 1000))
+    (should (= (rbx-evaluation-wall-time evaluation) 2.1))))
+
+(ert-deftest rbx-parse-report-reads-time-limit-and-untuned-suspicion ()
+  (let ((report (rbx--parse-solution-report
+                 '(("path" . "a.cpp") ("index" . 0) ("timeLimit" . 1.5)
+                   ("untunedLimitsSuspected" . t)))))
+    (should (= (rbx-solution-report-time-limit report) 1.5))
+    (should (rbx-solution-report-untuned-limits-suspected report)))
+  (let ((report (rbx--parse-solution-report '(("path" . "a.cpp") ("index" . 0)))))
+    (should-not (rbx-solution-report-time-limit report))
+    (should-not (rbx-solution-report-untuned-limits-suspected report))))
+
 (ert-deftest rbx-load-evaluation-caches-unchanged-artifact ()
   (rbx-test-with-directory root
     (let* ((package (rbx-package-create

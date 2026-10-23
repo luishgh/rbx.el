@@ -25,9 +25,17 @@
   group index subgroup input-path output-path generator-name generator-args
   copied-from generator-script generator-script-line)
 
+(cl-defstruct (rbx-limits (:constructor rbx-limits-create))
+  "The limits a solution or testcase ran under.
+TIME and CONFIGURED-TIME are milliseconds, MEMORY is MiB and OUTPUT is KiB.
+TIME is the enforced limit and is nil when none was (a sanitized run);
+CONFIGURED-TIME keeps the declared value.  DOUBLE-TL means the run was
+allowed to go on to twice TIME before being killed."
+  time configured-time memory output double-tl profile)
+
 (cl-defstruct (rbx-solution (:constructor rbx-solution-create))
   "A solution entry in skeleton.yml."
-  path expected-outcome index)
+  path expected-outcome index limits)
 
 (cl-defstruct (rbx-group (:constructor rbx-group-create))
   "A testcase group entry in skeleton.yml."
@@ -43,11 +51,12 @@
 
 (cl-defstruct (rbx-skeleton (:constructor rbx-skeleton-create))
   "The structural artifact written when an rbx run starts."
-  solutions entries groups compilation sanitized only-accepted)
+  solutions entries groups compilation sanitized only-accepted limits)
 
 (cl-defstruct (rbx-evaluation (:constructor rbx-evaluation-create))
   "Per-testcase facts from an evaluation artifact."
-  outcome message time memory no-tle-outcome sanitizer-warnings)
+  outcome message time memory no-tle-outcome sanitizer-warnings wall-time
+  limits)
 
 (cl-defstruct (rbx-group-report (:constructor rbx-group-report-create))
   "One group aggregate from report.yml."
@@ -60,7 +69,7 @@
   path index expected-outcome outcome status matches-expectation
   pooled-matches-expectation score max-score max-time max-memory failed-groups
   expected-score run-under-double-tl double-tl-verdicts sanitizer-warnings
-  groups)
+  time-limit untuned-limits-suspected groups)
 
 (cl-defstruct (rbx-run-report (:constructor rbx-run-report-create))
   "Aggregate decisions published by rbx for a run."
@@ -262,6 +271,23 @@ fallback used for artifacts old enough not to record that path."
                                 (rbx--model-field raw "warnings"))))
        :reason (rbx--model-string raw "reason")))))
 
+(defun rbx--parse-limits (raw)
+  "Parse RAW as a Limits mapping, or return nil."
+  (when (rbx--wire-mapping-p raw)
+    (rbx-limits-create
+     :time (rbx--model-number raw "time")
+     :configured-time (rbx--model-number raw "configuredTime")
+     :memory (rbx--model-number raw "memory")
+     :output (rbx--model-number raw "output")
+     :double-tl (rbx--model-boolean raw '("isDoubleTL") nil)
+     :profile (rbx--model-string raw "profile"))))
+
+(defun rbx-limits-expanded-time (limits)
+  "Return how long LIMITS lets a process run, in ms, or nil if unenforced.
+Mirrors rbx's `Limits.get_expanded_tl'."
+  (when-let* ((time (and limits (rbx-limits-time limits))))
+    (if (rbx-limits-double-tl limits) (* 2 time) time)))
+
 (defun rbx-parse-skeleton (raw)
   "Parse RAW as a SolutionReportSkeleton, or return nil."
   (when (rbx--wire-mapping-p raw)
@@ -275,7 +301,9 @@ fallback used for artifacts old enough not to record that path."
                          :path path
                          :expected-outcome
                          (rbx--model-string solution "outcome")
-                         :index index)
+                         :index index
+                         :limits (rbx--parse-limits
+                                  (rbx--model-field solution "limits")))
                         solutions))
       (dolist (entry (rbx--wire-sequence (rbx--model-field raw "entries")))
         (when-let* ((parsed (rbx-parse-testcase-entry entry)))
@@ -295,7 +323,12 @@ fallback used for artifacts old enough not to record that path."
        :groups (nreverse groups)
        :compilation (nreverse compilation)
        :sanitized (rbx--model-boolean raw '("sanitized") nil)
-       :only-accepted (rbx--model-boolean raw '("only_accepted") nil)))))
+       :only-accepted (rbx--model-boolean raw '("only_accepted") nil)
+       :limits (cl-loop
+                for (language . limits)
+                in (rbx--wire-mapping-entries (rbx--model-field raw "limits"))
+                for parsed = (rbx--parse-limits limits)
+                when parsed collect (cons language parsed))))))
 
 (defun rbx-parse-evaluation (raw)
   "Parse RAW as an Evaluation, or return nil."
@@ -307,7 +340,10 @@ fallback used for artifacts old enough not to record that path."
      :memory (rbx--model-number raw "log" "memory")
      :no-tle-outcome (rbx--model-string raw "result" "no_tle_outcome")
      :sanitizer-warnings
-     (rbx--model-boolean raw '("result" "sanitizer_warnings") nil))))
+     (rbx--model-boolean raw '("result" "sanitizer_warnings") nil)
+     :wall-time (rbx--model-number raw "log" "wall_time")
+     :limits (rbx--parse-limits
+              (rbx--model-field raw "log" "metadata" "limits")))))
 
 (defun rbx--parse-group-report (raw)
   "Parse RAW as a group aggregate, or return nil."
@@ -366,6 +402,9 @@ fallback used for artifacts old enough not to record that path."
        :double-tl-verdicts (rbx--model-strings raw "doubleTlVerdicts")
        :sanitizer-warnings
        (rbx--model-boolean raw '("sanitizerWarnings") nil)
+       :time-limit (rbx--model-number raw "timeLimit")
+       :untuned-limits-suspected
+       (rbx--model-boolean raw '("untunedLimitsSuspected") nil)
        :groups (delq nil
                      (mapcar #'rbx--parse-group-report
                              (rbx--wire-sequence
