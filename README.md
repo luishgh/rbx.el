@@ -40,6 +40,7 @@ extension calls them the same way.
 - Interactive problems: the interactor/solution transcript (payload only,
   with a margin label saying who wrote each line), the interactor's stderr and
   log, and the checker's full stderr (when kept with `--keep-checker-stderr`).
+- `z M` / `z R` collapse or expand every section of a view.
 - Sticky output/stderr/log selection and persistent testcase windows: after the
   first split, your window arrangement is reused.
 - Multi-problem discovery and selection for contest projects, naming problems

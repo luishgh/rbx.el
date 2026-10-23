@@ -247,6 +247,8 @@ adjusted by the user remains intact."
   "RET" #'rbx-view-visit
   "g" #'rbx-refresh
   "?" #'rbx-dispatch
+  "z M" #'rbx-collapse-all
+  "z R" #'rbx-expand-all
   "q" #'quit-window)
 
 (defvar-local rbx--package nil
@@ -1566,6 +1568,16 @@ is shown in a margin label that is not part of the text."
   (interactive)
   (rbx--show-channel 'log))
 
+(defun rbx-collapse-all ()
+  "Collapse every section of the current rbx view to its top level."
+  (interactive)
+  (magit-section-show-level-1-all))
+
+(defun rbx-expand-all ()
+  "Expand every section of the current rbx view."
+  (interactive)
+  (magit-section-show-level-4-all))
+
 (defun rbx-show-interaction ()
   "Show the interactor/solution transcript for the current testcase."
   (interactive)
@@ -1755,7 +1767,9 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
     ("f" "Follow running problem" rbx-toggle-contest-follow
      :if-mode rbx-view-mode)
-    ("g" "Refresh" rbx-refresh :if-mode rbx-view-mode)]
+    ("g" "Refresh" rbx-refresh :if-mode rbx-view-mode)
+    ("zM" "Collapse all" rbx-collapse-all :if-mode rbx-view-mode)
+    ("zR" "Expand all" rbx-expand-all :if-mode rbx-view-mode)]
    ["At point"
     ("RET" "Open" rbx-view-visit :if-mode rbx-view-mode)
     ("i" "Input" rbx-open-input :if-mode rbx-view-mode)

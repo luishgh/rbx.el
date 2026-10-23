@@ -1196,5 +1196,24 @@ STEM is the generated testcase basename, defaulting to \"000\"."
                             "No interaction recorded; run with `rbx -cp run'."))))
     (should (string-match-p "rbx -cp run" (cadr err)))))
 
+(ert-deftest rbx-collapse-and-expand-all-fold-the-run-view ()
+  (rbx-test-with-directory root
+    (rbx-test--run-view-visualization-fixture root)
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'run)
+        (rbx-refresh)
+        (rbx-expand-all)
+        (goto-char (point-min))
+        (re-search-forward "^    000")
+        (should-not (invisible-p (match-beginning 0)))
+        (rbx-collapse-all)
+        (should (invisible-p (match-beginning 0)))
+        (rbx-expand-all)
+        (should-not (invisible-p (match-beginning 0)))))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

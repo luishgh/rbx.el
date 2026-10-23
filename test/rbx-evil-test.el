@@ -32,6 +32,8 @@
     (should (eq (key-binding (kbd "p")) #'magit-section-backward))
     (should (eq (key-binding (kbd "q")) #'quit-window))
     (should (eq (key-binding (kbd "?")) #'rbx-dispatch))
+    (should (eq (key-binding (kbd "z M")) #'rbx-collapse-all))
+    (should (eq (key-binding (kbd "z R")) #'rbx-expand-all))
     (should (eq (key-binding (kbd "g r")) #'rbx-refresh))))
 
 (ert-deftest rbx-evil-frees-g-for-evils-own-motions ()

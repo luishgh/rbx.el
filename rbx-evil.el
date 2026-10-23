@@ -41,6 +41,8 @@
   (kbd "p")   #'magit-section-backward
   (kbd "q")   #'quit-window
   (kbd "?")   #'rbx-dispatch
+  (kbd "z M") #'rbx-collapse-all
+  (kbd "z R") #'rbx-expand-all
   (kbd "g")   nil
   (kbd "g r") #'rbx-refresh)
 
