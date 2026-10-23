@@ -219,6 +219,8 @@ adjusted by the user remains intact."
     ("MEMORY_LIMIT_EXCEEDED" :label "MLE" :face rbx-expected-slow)
     ("OUTPUT_LIMIT_EXCEEDED" :label "OLE" :face rbx-expected-other)
     ("TLE_OR_RTE" :label "TLE or RTE" :face rbx-expected-slow)
+    ("MLE_OR_RTE" :label "MLE or RTE" :face rbx-expected-slow)
+    ("TLE_OR_MLE" :label "TLE or MLE" :face rbx-expected-slow)
     ("JUDGE_FAILED" :label "FL" :face rbx-expected-other)
     ("COMPILATION_ERROR" :label "CE" :face rbx-expected-error))
   "Labels and hues for declared rbx outcomes.")
