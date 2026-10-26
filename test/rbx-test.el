@@ -44,6 +44,124 @@
     (rbx-mode -1)
     (should-not (memq #'rbx-flymake-backend flymake-diagnostic-functions))))
 
+(defun rbx-test--statement-diagnostics (root file)
+  "Return the statement Flymake diagnostics of FILE under ROOT."
+  (let ((buffer (find-file-noselect (expand-file-name file root)))
+        diagnostics)
+    (unwind-protect
+        (with-current-buffer buffer
+          (rbx-statement-flymake-backend
+           (lambda (items) (setq diagnostics items)))
+          diagnostics)
+      (kill-buffer buffer))))
+
+(defun rbx-test--write-statement-package (root findings)
+  "Write a package under ROOT whose statement build report has FINDINGS."
+  (rbx-test-write root "problem.rbx.yml"
+                  (concat "name: Demo\nstatements:\n"
+                          "  - language: en\n    file: statement/statement.rbx.tex\n"
+                          "    type: rbxTeX\n"))
+  (rbx-test-write root "statement/statement.rbx.tex"
+                  (concat (mapconcat #'number-to-string (number-sequence 1 15) "\n")
+                          "\n"))
+  (rbx-test-write root "statement/samples/01.rbx.tex" "a\nb\nc\n")
+  (rbx-test-write
+   root ".rbx/statements/report.yml"
+   (concat "version: 1\noutputs:\n"
+           "  - kind: statement\n    language: en\n    format: pdf\n"
+           "    path: build/statement-en.pdf\n    status: failed\n"
+           "    findings:\n" findings)))
+
+(ert-deftest rbx-statement-flymake-locates-errors-in-the-named-file ()
+  (rbx-test-with-directory root
+    (rbx-test--write-statement-package
+     root (concat "      - origin: latex\n        severity: error\n"
+                  "        message: Undefined control sequence.\n"
+                  "        context: \\foo\n"
+                  "        file: statement/statement.rbx.tex\n        line: 12\n"
+                  "      - origin: latex\n        severity: warning\n"
+                  "        message: Overfull hbox.\n"
+                  "        file: statement/samples/01.rbx.tex\n        line: 2\n"))
+    (let ((main (rbx-test--statement-diagnostics
+                 root "statement/statement.rbx.tex"))
+          (sample (rbx-test--statement-diagnostics
+                   root "statement/samples/01.rbx.tex")))
+      (should (= (length main) 1))
+      (should (eq (flymake-diagnostic-type (car main)) :error))
+      (should (string-match-p "Undefined control sequence\\.\n\\\\foo"
+                              (flymake-diagnostic-text (car main))))
+      (should (= (length sample) 1))
+      (should (eq (flymake-diagnostic-type (car sample)) :warning))
+      (should (string-match-p "Overfull"
+                              (flymake-diagnostic-text (car sample)))))))
+
+(ert-deftest rbx-statement-flymake-places-unlocated-errors-on-the-source ()
+  (rbx-test-with-directory root
+    (rbx-test--write-statement-package
+     root "      - origin: build\n        severity: error\n        message: pdflatex failed.\n")
+    (let ((main (rbx-test--statement-diagnostics
+                 root "statement/statement.rbx.tex")))
+      (should (= (length main) 1))
+      (should (= (flymake-diagnostic-beg (car main)) 1))
+      (should-not (rbx-test--statement-diagnostics
+                   root "statement/samples/01.rbx.tex")))))
+
+(ert-deftest rbx-statement-flymake-merges-repeats-across-outputs ()
+  (rbx-test-with-directory root
+    (let ((finding (concat "      - origin: latex\n        severity: error\n"
+                           "        message: Boom.\n"
+                           "        file: statement/statement.rbx.tex\n"
+                           "        line: 3\n")))
+      (rbx-test--write-statement-package root finding)
+      (with-temp-buffer
+        (insert-file-contents (expand-file-name ".rbx/statements/report.yml" root))
+        (goto-char (point-max))
+        (insert "  - kind: statement\n    language: en\n    format: tex\n"
+                "    path: build/statement-en.tex\n    status: failed\n"
+                "    findings:\n" finding)
+        (write-region nil nil (expand-file-name ".rbx/statements/report.yml" root)))
+      (rbx-reset-artifact-cache)
+      (should (= (length (rbx-test--statement-diagnostics
+                          root "statement/statement.rbx.tex"))
+                 1)))))
+
+(ert-deftest rbx-statement-flymake-ignores-a-missing-report ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (rbx-test-write root "statement/statement.rbx.tex" "x\n")
+    (should-not (rbx-test--statement-diagnostics
+                 root "statement/statement.rbx.tex"))))
+
+(ert-deftest rbx-mode-installs-the-statement-backend-in-tex-buffers-only ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (let ((tex (find-file-noselect
+                (rbx-test-write root "statement/statement.rbx.tex" "x\n")))
+          (cpp (find-file-noselect (rbx-test-write root "sols/a.cpp" "x\n"))))
+      (unwind-protect
+          (cl-letf (((symbol-function 'flymake-mode) #'ignore)
+                    ((symbol-function 'flymake-start) #'ignore)
+                    ((symbol-function 'rbx-watch-package) #'ignore))
+            (with-current-buffer tex
+              (rbx-mode 1)
+              (should (memq #'rbx-statement-flymake-backend
+                            flymake-diagnostic-functions))
+              (rbx-mode -1)
+              (should-not (memq #'rbx-statement-flymake-backend
+                                flymake-diagnostic-functions))
+              (let ((rbx-statement-diagnostics nil))
+                (rbx-mode 1)
+                (should-not (memq #'rbx-statement-flymake-backend
+                                  flymake-diagnostic-functions))
+                (rbx-mode -1)))
+            (with-current-buffer cpp
+              (rbx-mode 1)
+              (should-not (memq #'rbx-statement-flymake-backend
+                                flymake-diagnostic-functions))
+              (rbx-mode -1)))
+        (kill-buffer tex)
+        (kill-buffer cpp)))))
+
 (ert-deftest rbx-mode-refuses-to-enable-from-a-hook-without-yq ()
   (rbx-test-with-directory root
     (let ((source (rbx-test-write root "sols/main.cpp" "int main() {}\n"))

@@ -96,7 +96,7 @@ of never invoking rbx (see `AGENTS.md`).
 
 - [x] Read `.rbx/statements/report.yml` (versioned, tolerant of unknown
       versions), watch its directory, preview built outputs with
-      auto-revert, and list located build findings in `compilation-mode`.
+      auto-revert, and show located build findings as Flymake diagnostics in the TeX buffers.
 
 ## Stress findings
 

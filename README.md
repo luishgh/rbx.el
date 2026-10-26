@@ -37,9 +37,10 @@ extension calls them the same way.
   stderr; `w` copies the generator call that reproduces it.
 - Statement preview: `M-x rbx-preview-statement` opens a built statement
   PDF (picked from `.rbx/statements/report.yml`) with auto-revert, and
-  `M-x rbx-show-statement-findings` lists the last build's LaTeX/template
-  errors in a `compilation-mode` buffer whose lines jump to the source
-  (`P` and `E` in the Transient).
+  the last build's LaTeX/template errors show up as Flymake diagnostics in
+  every TeX file they name (the statement and its samples alike); unlocated
+  ones sit on the statement's first line.  Turn this off with
+  `rbx-statement-diagnostics` (`P` in the Transient).
 - A visualization gallery, grouped like the testset browser, with inline
   image thumbnails and link lines for HTML visualizations; opens the input
   or answer visualization for any testcase from either view.

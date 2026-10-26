@@ -1290,42 +1290,6 @@ STEM is the generated testcase basename, defaulting to \"000\"."
         (should (string-match-p "limits look untuned.*rbx time"
                                 (buffer-string)))))))
 
-(ert-deftest rbx-statement-findings-buffer-lists-located-errors ()
-  (rbx-test-with-directory root
-    (rbx-test-write
-     root ".rbx/statements/report.yml"
-     (concat "version: 1\noutputs:\n"
-             "  - kind: statement\n    language: en\n    format: pdf\n"
-             "    path: build/statement-en.pdf\n    status: failed\n"
-             "    builtAt: '2026-10-20T00:00:00Z'\n    seconds: 1.0\n"
-             "    findings:\n"
-             "      - origin: latex\n        severity: error\n"
-             "        message: Undefined control sequence.\n"
-             "        file: statement/statement.rbx.tex\n        line: 12\n"
-             "      - origin: build\n        severity: error\n"
-             "        message: pdflatex failed.\n"))
-    (let* ((package (rbx-package-create
-                     :root (file-name-as-directory root) :build-dir "build"))
-           (buffer (rbx--statement-findings-buffer package)))
-      (with-current-buffer buffer
-        (should (derived-mode-p 'compilation-mode))
-        (should (string-match-p
-                 "^statement/statement.rbx.tex:12: error: Undefined control"
-                 (buffer-string)))
-        (should (string-match-p "pdflatex failed" (buffer-string)))))))
-
-(ert-deftest rbx-statement-findings-buffer-reports-a-clean-build ()
-  (rbx-test-with-directory root
-    (rbx-test-write
-     root ".rbx/statements/report.yml"
-     (concat "version: 1\noutputs:\n"
-             "  - kind: statement\n    format: pdf\n"
-             "    path: build/statement-en.pdf\n    status: ok\n"))
-    (let ((package (rbx-package-create
-                    :root (file-name-as-directory root) :build-dir "build")))
-      (with-current-buffer (rbx--statement-findings-buffer package)
-        (should (string-match-p "No statement errors" (buffer-string)))))))
-
 (ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
   (rbx-test-with-directory root
     (rbx-test-write root "build/statement-en.pdf" "%PDF")

@@ -2043,48 +2043,6 @@ The file is visited read-only and reverted when a rebuild replaces it."
         (view-mode 1)))
     (pop-to-buffer buffer)))
 
-(defun rbx--statement-findings-buffer (package)
-  "Return a `compilation-mode' buffer listing PACKAGE's statement errors."
-  (let* ((report (or (rbx-load-statement-report package)
-                     (user-error "No statement build report; build the statement first")))
-         (findings
-          (mapcan (lambda (output)
-                    (mapcar (lambda (finding) (cons output finding))
-                            (rbx-statement-output-findings output)))
-                  (rbx-statement-report-outputs report)))
-         (buffer (get-buffer-create
-                  (format "*rbx statement: %s*"
-                          (file-name-nondirectory
-                           (directory-file-name (rbx-package-root package)))))))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (setq default-directory (rbx-package-root package))
-        (if (null findings)
-            (insert "No statement errors in the last build.\n")
-          (pcase-dolist (`(,output . ,finding) findings)
-            (let ((file (rbx-statement-finding-file finding))
-                  (line (rbx-statement-finding-line finding)))
-              (insert
-               (if (and file line)
-                   (format "%s:%d: " file line)
-                 (format "%s: " (rbx--statement-output-label output)))
-               (rbx-statement-finding-severity finding) ": "
-               (rbx-statement-finding-message finding) "\n")
-              (when-let* ((context (rbx-statement-finding-context finding)))
-                (insert "    " context "\n"))))))
-      (compilation-mode)
-      (goto-char (point-min)))
-    buffer))
-
-;;;###autoload
-(defun rbx-show-statement-findings (&optional package)
-  "Show the errors of PACKAGE's last statement build, jumping to sources."
-  (interactive)
-  (rbx-ensure-yq)
-  (pop-to-buffer
-   (rbx--statement-findings-buffer (or package (rbx--view-or-selected-package)))))
-
 ;;;###autoload
 (transient-define-prefix rbx-dispatch ()
   "Open rbx views and act on the item at point."
@@ -2096,7 +2054,6 @@ The file is visited read-only and reverted when a rebuild replaces it."
     ("G" "Visualizations" rbx-visualization-gallery)
     ("S" "Stress findings" rbx-stress-view)
     ("P" "Preview statement" rbx-preview-statement)
-    ("E" "Statement errors" rbx-show-statement-findings)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
     ("f" "Follow running problem" rbx-toggle-contest-follow
      :if-mode rbx-view-mode)

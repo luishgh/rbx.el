@@ -15,6 +15,7 @@
 
 ;;; Code:
 
+(require 'rbx)
 (require 'rbx-core)
 (require 'rbx-model)
 (require 'rbx-statement)
@@ -252,10 +253,22 @@ Statement and stress failures are findings rbx publishes, not errors."
       (should (equal (rbx-statement-finding-file finding)
                      "statement/statement-en.rbx.tex"))
       (should (= (rbx-statement-finding-line finding) 2))
-      (with-current-buffer (rbx--statement-findings-buffer package)
-        (should (string-match-p
-                 "^statement/statement-en\\.rbx\\.tex:2: error: Undefined"
-                 (buffer-string)))))))
+      (let ((buffer (find-file-noselect
+                     (expand-file-name "statement/statement-en.rbx.tex" demo)))
+            diagnostics)
+        (unwind-protect
+            (with-current-buffer buffer
+              (rbx-statement-flymake-backend
+               (lambda (items) (setq diagnostics items)))
+              (should (= (length diagnostics) 1))
+              (should (eq (flymake-diagnostic-type (car diagnostics)) :error))
+              (should (= (line-number-at-pos
+                          (flymake-diagnostic-beg (car diagnostics)))
+                         2))
+              (should (string-match-p
+                       "Undefined"
+                       (flymake-diagnostic-text (car diagnostics)))))
+          (kill-buffer buffer))))))
 
 (provide 'rbx-integration-test)
 ;;; rbx-integration-test.el ends here

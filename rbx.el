@@ -41,6 +41,12 @@
   :type 'boolean
   :group 'rbx)
 
+(defcustom rbx-statement-diagnostics t
+  "Whether `rbx-mode' publishes statement build errors through Flymake.
+Only TeX buffers are affected."
+  :type 'boolean
+  :group 'rbx)
+
 (defcustom rbx-statement-var-hints t
   "Whether `rbx-mode' shows `\\VAR{...}' value hints in statement buffers."
   :type 'boolean
@@ -107,6 +113,73 @@
                  (rbx-package-file-path package (rbx-warning-file warning))))
             (when (rbx--same-file-p buffer-file-name warning-file)
               (push (rbx--warning-diagnostic warning) diagnostics))))))
+    (funcall report-fn (nreverse diagnostics))))
+
+;;;; Statement build diagnostics
+
+(defun rbx--statement-tex-buffer-p ()
+  "Return non-nil when the current buffer visits a TeX file."
+  (and buffer-file-name
+       (or (derived-mode-p 'tex-mode)
+           (equal (file-name-extension buffer-file-name) "tex"))))
+
+(defun rbx--statement-finding-severity (finding)
+  "Return the Flymake type for the `rbx-statement-finding' FINDING."
+  (pcase (rbx-statement-finding-severity finding)
+    ("error" :error)
+    ("warning" :warning)
+    (_ :note)))
+
+(defun rbx--statement-output-sources (package output)
+  "Return the absolute files an unlocated finding of OUTPUT belongs to.
+PACKAGE is the rbx package.  That is the output's recorded source,
+else the declared statements in its language."
+  (if-let* ((source (rbx-statement-output-source output)))
+      (list (rbx-package-file-path package source))
+    (let ((language (rbx-statement-output-language output)))
+      (mapcar (lambda (statement)
+                (rbx-package-file-path package
+                                       (rbx-problem-statement-file statement)))
+              (seq-filter
+               (lambda (statement)
+                 (or (null language)
+                     (equal (rbx-problem-statement-language statement)
+                            language)))
+               (rbx-load-problem-statements package))))))
+
+(defun rbx-statement-flymake-backend (report-fn &rest _args)
+  "Report statement build errors using Flymake REPORT-FN.
+
+A statement spans several files (the main one plus samples and anything
+it includes), so a finding is shown in whichever file it names, as
+recorded in the last build report.  A finding naming no file is shown at
+the top of the statement's source."
+  (let ((package (and buffer-file-name (rbx-find-package)))
+        seen diagnostics)
+    (when-let* ((report (and package (rbx-load-statement-report package))))
+      (dolist (output (rbx-statement-report-outputs report))
+        (dolist (finding (rbx-statement-output-findings output))
+          (let* ((file (rbx-statement-finding-file finding))
+                 (line (rbx-statement-finding-line finding))
+                 (message (rbx-statement-finding-message finding))
+                 (key (list file line message)))
+            (when (and (not (member key seen))
+                       (if file
+                           (rbx--same-file-p
+                            buffer-file-name
+                            (rbx-package-file-path package file))
+                         (seq-some
+                          (lambda (source)
+                            (rbx--same-file-p buffer-file-name source))
+                          (rbx--statement-output-sources package output))))
+              (push key seen)
+              (let ((region (rbx--diagnostic-region (or line 1)))
+                    (context (rbx-statement-finding-context finding)))
+                (push (flymake-make-diagnostic
+                       (current-buffer) (car region) (cdr region)
+                       (rbx--statement-finding-severity finding)
+                       (if context (concat message "\n" context) message))
+                      diagnostics)))))))
     (funcall report-fn (nreverse diagnostics))))
 
 (defun rbx--clear-statement-hint-overlays ()
@@ -232,7 +305,9 @@ reading it, since reading YAML is exactly what needs yq."
                (when (buffer-live-p buffer)
                  (with-current-buffer buffer
                    (when rbx-mode
-                     (when rbx-compilation-diagnostics
+                     (when (or rbx-compilation-diagnostics
+                               (memq #'rbx-statement-flymake-backend
+                                     flymake-diagnostic-functions))
                        (flymake-start))
                      (when rbx-statement-var-hints
                        (rbx-statement-invalidate package)
@@ -243,10 +318,11 @@ reading it, since reading YAML is exactly what needs yq."
   "Integrate the current rbx package with Emacs.
 
 The mode binds `C-c r' to `rbx-dispatch'.  When
-`rbx-compilation-diagnostics' is non-nil, it also makes findings from the most
-recent run available to Flymake.  When `rbx-statement-var-hints' is non-nil
-and this file is one of the package's declared statements, it shows what
-each `\\VAR{...}' reference resolves to.
+`rbx-compilation-diagnostics' is non-nil, it also makes findings from the
+most recent run available to Flymake, and with `rbx-statement-diagnostics'
+it does the same for statement build errors in TeX buffers.  When
+`rbx-statement-var-hints' is non-nil and this file is one of the package's
+declared statements, it shows what each `\\VAR{...}' reference resolves to.
 
 Inside a package the mode needs mikefarah/yq; without it the mode stays
 off, warning once when enabled from a hook."
@@ -264,14 +340,24 @@ off, warning once when enabled from a hook."
               (rbx--warn-once 'yq problem)))
         (when rbx-compilation-diagnostics
           (add-hook 'flymake-diagnostic-functions #'rbx-flymake-backend nil t))
-        (when (or rbx-compilation-diagnostics rbx-statement-var-hints)
+        (when (and rbx-statement-diagnostics (rbx--statement-tex-buffer-p))
+          (add-hook 'flymake-diagnostic-functions
+                    #'rbx-statement-flymake-backend nil t))
+        (when (or rbx-compilation-diagnostics rbx-statement-var-hints
+                  (memq #'rbx-statement-flymake-backend
+                        flymake-diagnostic-functions))
           (add-hook 'kill-buffer-hook #'rbx--stop-artifact-watcher nil t)
           (rbx--start-artifact-watcher))
-        (when (and rbx-compilation-diagnostics buffer-file-name)
+        (when (and buffer-file-name
+                   (or rbx-compilation-diagnostics
+                       (memq #'rbx-statement-flymake-backend
+                             flymake-diagnostic-functions)))
           (flymake-mode 1)
           (flymake-start))
         (rbx--enable-statement-hints))
     (remove-hook 'flymake-diagnostic-functions #'rbx-flymake-backend t)
+    (remove-hook 'flymake-diagnostic-functions
+                 #'rbx-statement-flymake-backend t)
     (remove-hook 'kill-buffer-hook #'rbx--stop-artifact-watcher t)
     (rbx--stop-artifact-watcher)
     (rbx--disable-statement-hints)))

@@ -9,6 +9,9 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Statement build errors are published through Flymake in the TeX files they
+  name (`rbx-statement-diagnostics`), replacing the
+  `rbx-show-statement-findings` buffer and its `E` binding.
 - Optional evil-mode support (`rbx-evil.el`, opt in with
   `(with-eval-after-load 'evil (require 'rbx-evil))`): `rbx-view-mode` opens
   in evil's normal state and keeps its own bindings, with `g` freed for
