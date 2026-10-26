@@ -229,5 +229,14 @@
                 (rbx-mode -1)))
           (kill-buffer buffer))))))
 
+(ert-deftest rbx-view-package-helper-selects-outside-a-statement-buffer ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+    (with-temp-buffer
+      (let ((default-directory (file-name-as-directory root))
+            (rbx-statement-var-hints t))
+        (should-not (rbx--statement-package))
+        (should (rbx-package-p (rbx--view-or-selected-package)))))))
+
 (provide 'rbx-test)
 ;;; rbx-test.el ends here

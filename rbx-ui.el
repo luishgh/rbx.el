@@ -2021,7 +2021,7 @@ PACKAGE's root."
       (`(,only) (cdr only))
       (_ (cdr (assoc (completing-read "Statement: " choices nil t) choices))))))
 
-(defun rbx--statement-package ()
+(defun rbx--view-or-selected-package ()
   "Return the package of the current rbx view, or select one."
   (or (and (boundp 'rbx--package) rbx--package) (rbx--select-package)))
 
@@ -2031,7 +2031,7 @@ PACKAGE's root."
 The file is visited read-only and reverted when a rebuild replaces it."
   (interactive)
   (rbx-ensure-yq)
-  (let* ((package (or package (rbx--statement-package)))
+  (let* ((package (or package (rbx--view-or-selected-package)))
          (output (rbx--read-statement-output package))
          (file (or (rbx--statement-output-file package output)
                    (user-error "Not built yet: %s"
@@ -2083,7 +2083,7 @@ The file is visited read-only and reverted when a rebuild replaces it."
   (interactive)
   (rbx-ensure-yq)
   (pop-to-buffer
-   (rbx--statement-findings-buffer (or package (rbx--statement-package)))))
+   (rbx--statement-findings-buffer (or package (rbx--view-or-selected-package)))))
 
 ;;;###autoload
 (transient-define-prefix rbx-dispatch ()
