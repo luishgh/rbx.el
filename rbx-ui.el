@@ -2158,6 +2158,24 @@ The file is visited read-only and reverted when a rebuild replaces it."
     (pop-to-buffer buffer)))
 
 ;;;###autoload
+(defun rbx-statement-open-log (&optional package)
+  "Open the full LaTeX log of a statement build of PACKAGE, read-only.
+Flymake shows the located errors; the log has everything else."
+  (interactive)
+  (rbx-ensure-yq)
+  (let* ((package (or package (rbx--view-or-selected-package)))
+         (output (rbx--read-statement-output package))
+         (log (rbx-statement-output-log output))
+         (file (and log (rbx-package-file-path package log))))
+    (unless (and file (file-readable-p file))
+      (user-error "%s" (if log
+                           (format "The build no longer keeps its log (%s)" log)
+                         "This statement build recorded no log")))
+    (let ((buffer (rbx--read-only-file-buffer file)))
+      (pop-to-buffer buffer)
+      buffer)))
+
+;;;###autoload
 (transient-define-prefix rbx-dispatch ()
   "Open rbx views and act on the item at point."
   [["Views"
@@ -2168,6 +2186,7 @@ The file is visited read-only and reverted when a rebuild replaces it."
     ("G" "Visualizations" rbx-visualization-gallery)
     ("S" "Stress findings" rbx-stress-view)
     ("P" "Preview statement" rbx-preview-statement)
+    ("L" "Statement build log" rbx-statement-open-log)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
     ("f" "Follow running problem" rbx-toggle-contest-follow
      :if-mode rbx-view-mode)

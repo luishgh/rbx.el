@@ -1356,6 +1356,39 @@ STEM is the generated testcase basename, defaulting to \"000\"."
         (should (string-match-p "limits look untuned.*rbx time"
                                 (buffer-string)))))))
 
+(ert-deftest rbx-statement-log-opens-the-full-latex-log-read-only ()
+  (rbx-test-with-directory root
+    (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                        :build-dir "build"))
+           (log (rbx-test-write root "build/statement.log" "This is pdfTeX\n"))
+           (output (rbx-statement-output-create :path "build/statement.pdf"
+                                                :log "build/statement.log"))
+           buffer)
+      (cl-letf (((symbol-function 'rbx-ensure-yq) #'ignore)
+                ((symbol-function 'rbx--read-statement-output)
+                 (lambda (_package) output))
+                ((symbol-function 'pop-to-buffer) #'identity))
+        (setq buffer (rbx-statement-open-log package)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (equal buffer-file-name log))
+            (should buffer-read-only))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-statement-log-explains-a-missing-log ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (dolist (log '(nil "build/gone.log"))
+        (cl-letf (((symbol-function 'rbx-ensure-yq) #'ignore)
+                  ((symbol-function 'rbx--read-statement-output)
+                   (lambda (_package)
+                     (rbx-statement-output-create :path "build/statement.pdf"
+                                                  :log log))))
+          (let ((err (should-error (rbx-statement-open-log package)
+                                   :type 'user-error)))
+            (should (string-match-p "log" (cadr err)))))))))
+
 (ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
   (rbx-test-with-directory root
     (rbx-test-write root "build/statement-en.pdf" "%PDF")

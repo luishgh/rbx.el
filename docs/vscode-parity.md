@@ -143,7 +143,7 @@ mirrors.
 | Picker starts on the source being edited | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 | Picker follows as you switch sources | `discarded` | Needs a window-change hook that would fight user-arranged windows |
 | Build errors on the source line (`rbx.statementDiagnostics`) | `mapped` | Flymake via `rbx-statement-diagnostics` |
-| Banner listing failures, with a link to the full LaTeX log | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Banner listing failures, with a link to the full LaTeX log | `adapted` | Flymake lists the located failures; `rbx-statement-open-log` (`L`) opens the full LaTeX log |
 | Build button and `rbx.statements.buildOnSave` | `discarded` | Starts `rbx` (D1) |
 
 ## Solution and file annotations
