@@ -33,8 +33,8 @@ mirrors.
 | Verdict, points, max time and memory per solution and group | `mapped` | Read from `.rbx/runs/report.yml` |
 | Partially correct verdict and expectation | `mapped` | `PC` in yellow, in both channels |
 | Fractional scores | `mapped` | Printed to the cent, as `rbx run` does |
-| Percentage on a partially correct testcase | `proposed` | [#9](https://github.com/luishgh/rbx.el/issues/9) |
-| Score coloured by how much it earned | `proposed` | [#9](https://github.com/luishgh/rbx.el/issues/9) |
+| Percentage on a partially correct testcase | `mapped` | Beside the verdict on the row and info card ([#9](https://github.com/luishgh/rbx.el/issues/9)) |
+| Score coloured by how much it earned | `mapped` | Green when full, yellow when partial, red at zero; `0/0` is green ([#9](https://github.com/luishgh/rbx.el/issues/9)) |
 | Progress while running (`12/40`) | `mapped` | Run view row summary |
 | Limits per language and limits profile in the header | `mapped` | Run view header |
 | `limits look untuned` notice | `mapped` | Run view header |

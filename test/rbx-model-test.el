@@ -113,6 +113,16 @@
                 (cdr (assoc "py" (rbx-skeleton-limits skeleton))))
                3000))))
 
+(ert-deftest rbx-parse-evaluation-reads-the-testcase-score ()
+  (should (= (rbx-evaluation-score
+              (rbx-parse-evaluation
+               '(("result" . (("outcome" . "partially-correct")
+                              ("score" . 0.37037))))))
+             0.37037))
+  (should-not (rbx-evaluation-score
+               (rbx-parse-evaluation
+                '(("result" . (("outcome" . "accepted"))))))))
+
 (ert-deftest rbx-parse-evaluation-reads-its-own-limits-and-wall-time ()
   (let ((evaluation
          (rbx-parse-evaluation

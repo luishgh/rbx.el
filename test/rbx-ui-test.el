@@ -1719,6 +1719,31 @@ Return (CHOSEN . DEFAULT) where DEFAULT is what the prompt offered."
     (should (equal (rbx--context-path context 'output)
                    "/p/.rbx/runs/.irun/0/000.out"))))
 
+(ert-deftest rbx-score-hue-follows-how-much-was-earned ()
+  (should (eq (rbx--score-face 100 100) 'rbx-hue-green))
+  (should (eq (rbx--score-face 37.04 100) 'rbx-hue-yellow))
+  (should (eq (rbx--score-face 0 100) 'rbx-hue-red))
+  ;; Binary-scored packages report 0/0, which upstream colours green.
+  (should (eq (rbx--score-face 0 0) 'rbx-hue-green)))
+
+(ert-deftest rbx-score-is-fontified-by-its-hue ()
+  (let ((text (rbx--score 37.04 100)))
+    (should (equal text "[37.04/100]"))
+    (should (eq (get-text-property 0 'font-lock-face text) 'rbx-hue-yellow))))
+
+(ert-deftest rbx-partial-testcase-row-shows-its-percentage ()
+  (let ((partial (rbx-evaluation-create :outcome "partially-correct"
+                                        :score 0.7406))
+        (full (rbx-evaluation-create :outcome "accepted" :score 1.0))
+        (bare (rbx-evaluation-create :outcome "partially-correct")))
+    (should (equal (substring-no-properties (rbx--evaluation-percent partial))
+                   "74.06%"))
+    (should (eq (get-text-property 0 'font-lock-face
+                                   (rbx--evaluation-percent partial))
+                'rbx-hue-yellow))
+    (should-not (rbx--evaluation-percent full))
+    (should-not (rbx--evaluation-percent bare))))
+
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here
 
