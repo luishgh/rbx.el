@@ -243,9 +243,9 @@ itself is ever tried via a login shell."
 (defun rbx--resolve-candidate (command source root &optional version-predicate)
   "Return COMMAND if it is usable via SOURCE in ROOT, or nil.
 
-A command found on `exec-path' is returned as an absolute file name: that
-variable may be buffer-local (as envrc.el makes it), and the caller can
-end up running the result from another buffer.  VERSION-PREDICATE is
+A command found on the variable `exec-path' is returned as an absolute
+file name: that variable may be buffer-local (as envrc.el makes it), and the
+caller can end up running the result from another buffer.  VERSION-PREDICATE is
 passed to `rbx--command-available-p'."
   (pcase source
     ('login-shell
