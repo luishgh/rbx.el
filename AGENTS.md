@@ -56,3 +56,7 @@ This repository implements an Emacs 30 package inspired by the official
 - Use Conventional Commits such as `feat:`, `fix:`, `test:`, `docs:`, and
   `chore:`.  Keep commits focused and leave the worktree clean.
 - Do not commit generated `.elc` or autoload files.
+- Track what rbx.el decided about each VS Code extension feature in
+  `docs/vscode-parity.md`, and plans and progress in GitHub issues.  Update the
+  feature's row in the change that closes its issue.  Use the `bump-rbx` skill to
+  update the vendored `rbx` and review new extension features.
