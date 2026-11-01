@@ -752,6 +752,22 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
                              (concat " · " flag) "")
                          (rbx-warning-message warning)))))))))))
 
+(defun rbx--adhoc-description (skeleton)
+  "Describe what the ad-hoc run in SKELETON ran on, or nil.
+That is `group/index' for a testset entry, else the generator call, else
+\"typed input\".  Only a run of a single entry has one."
+  (let ((entries (rbx-skeleton-entries skeleton)))
+    (when (and entries (null (cdr entries)))
+      (let ((entry (car entries)))
+        (cond
+         ((not (equal (rbx-testcase-group entry) "interactive"))
+          (format "%s/%s" (rbx-testcase-group entry) (rbx-testcase-index entry)))
+         ((rbx-testcase-generator-name entry)
+          (string-join (delq nil (list (rbx-testcase-generator-name entry)
+                                       (rbx-testcase-generator-args entry)))
+                       " "))
+         (t "typed input"))))))
+
 (defun rbx--insert-run-view (package)
   "Insert PACKAGE's run view at point."
   (rbx--clear-fringe-overlays)
@@ -764,7 +780,11 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
             (rbx-root-section (list :kind 'root :package package))
           (magit-insert-heading
            (format "%s · %s%s%s\n"
-                   (if (rbx-package-runs-subdir package) "Ad-hoc run" "Run")
+                   (if (rbx-package-runs-subdir package)
+                       (if-let* ((what (rbx--adhoc-description skeleton)))
+                           (concat "Ad-hoc run · " what)
+                         "Ad-hoc run")
+                     "Run")
                    (rbx--package-heading-label
                     package (abbreviate-file-name (rbx-package-root package)))
                    (if rbx--contest-watchers " · following" "")

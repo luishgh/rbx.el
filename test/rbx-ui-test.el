@@ -1506,6 +1506,38 @@ STEM is the generated testcase basename, defaulting to \"000\"."
         (should (string-match-p "a\\.cpp" (buffer-string)))
         (should (string-match-p "interactive" (buffer-string)))))))
 
+(ert-deftest rbx-adhoc-description-names-what-the-run-ran-on ()
+  (cl-flet ((describe (&rest args)
+              (rbx--adhoc-description
+               (rbx-skeleton-create
+                :entries (list (apply #'rbx-testcase-create args))))))
+    (should (equal (describe :group "samples" :index 0) "samples/0"))
+    (should (equal (describe :group "interactive" :index 0
+                             :generator-name "gen" :generator-args "5 3")
+                   "gen 5 3"))
+    (should (equal (describe :group "interactive" :index 0) "typed input")))
+  (should-not (rbx--adhoc-description (rbx-skeleton-create :entries nil))))
+
+(ert-deftest rbx-adhoc-view-heading-says-what-it-ran-on ()
+  (rbx-test-with-directory root
+    (rbx-test-write
+     root ".rbx/runs/.irun/skeleton.yml"
+     (concat "solutions:\n  - path: sols/a.cpp\n    outcome: ACCEPTED\n"
+             "    runs_dir: .rbx/runs/.irun/0\n"
+             "groups: []\nentries:\n  - group_entry:\n"
+             "      group: interactive\n      index: 0\n"))
+    (rbx-reset-artifact-cache)
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--insert-run-view
+         (rbx-adhoc-package (rbx-package-create
+                             :root (file-name-as-directory root)
+                             :build-dir "build"))))
+      (goto-char (point-min))
+      (should (string-match-p "Ad-hoc run · typed input · "
+                              (buffer-substring (point) (line-end-position)))))))
+
 (ert-deftest rbx-adhoc-view-explains-a-missing-irun ()
   (rbx-test-with-directory root
     (rbx-reset-artifact-cache)

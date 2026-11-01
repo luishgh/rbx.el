@@ -117,7 +117,7 @@ mirrors.
 | --- | --- | --- |
 | Results of `rbx irun` in the run view layout | `mapped` | `rbx-adhoc-run-view` (`I`) |
 | Toggle between last run and ad-hoc run, following the newest | `adapted` | Two separate views; no automatic switch |
-| Hover shows what the ad-hoc run ran on | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Hover shows what the ad-hoc run ran on | `adapted` | Shown in the ad-hoc view heading, since a buffer has no hover |
 | Start `irun` from a testcase, input or generator call | `discarded` | Starts `rbx` (D1) |
 
 ## Stress testing
