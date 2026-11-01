@@ -71,7 +71,7 @@ mirrors.
 | Open solution, input, output, answer, stderr | `mapped` | `rbx-open-solution`, `i`, `o`, `a`, `2` |
 | Card: checker message in full, wrapped | `mapped` | `rbx-show-testcase-info` (`m`) |
 | Card: test origin, linking to real files | `mapped` | `m`, then `rbx-visit-testcase-source` (`s`) |
-| Card: wall, checker and interactor times | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Card: wall, checker and interactor times | `mapped` | `rbx-show-testcase-info` (`m`), showing the times the run recorded |
 | Copy interaction as `.interaction` | `mapped` | `rbx-copy-interaction` (`C`), from a testcase or the transcript buffer |
 | Copy paths and reveal in the file browser | `mapped` | `rbx-copy-path` (`y`) and `rbx-reveal-in-dired` (`j`) in the dispatch; a prefix argument picks the artifact |
 

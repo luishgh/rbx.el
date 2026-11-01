@@ -56,7 +56,7 @@ allowed to go on to twice TIME before being killed."
 (cl-defstruct (rbx-evaluation (:constructor rbx-evaluation-create))
   "Per-testcase facts from an evaluation artifact."
   outcome message time memory no-tle-outcome sanitizer-warnings wall-time
-  limits)
+  checker-time interactor-time limits)
 
 (cl-defstruct (rbx-group-report (:constructor rbx-group-report-create))
   "One group aggregate from report.yml."
@@ -371,6 +371,9 @@ Mirrors rbx's `Limits.get_expanded_tl'."
      :sanitizer-warnings
      (rbx--model-boolean raw '("result" "sanitizer_warnings") nil)
      :wall-time (rbx--model-number raw "log" "wall_time")
+     :checker-time (rbx--model-number raw "result" "checker_timing" "time")
+     :interactor-time
+     (rbx--model-number raw "result" "interactor_timing" "time")
      :limits (rbx--parse-limits
               (rbx--model-field raw "log" "metadata" "limits")))))
 

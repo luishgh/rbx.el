@@ -123,6 +123,21 @@
     (should (= (rbx-limits-time (rbx-evaluation-limits evaluation)) 1000))
     (should (= (rbx-evaluation-wall-time evaluation) 2.1))))
 
+(ert-deftest rbx-parse-evaluation-reads-checker-and-interactor-times ()
+  (let ((evaluation
+         (rbx-parse-evaluation
+          '(("result" . (("outcome" . "accepted")
+                         ("checker_timing" . (("time" . 0.012)))
+                         ("interactor_timing" . (("time" . 0.3)
+                                                 ("wall_time" . 0.4)))))
+            ("log" . (("time" . 0.1)))))))
+    (should (= (rbx-evaluation-checker-time evaluation) 0.012))
+    (should (= (rbx-evaluation-interactor-time evaluation) 0.3)))
+  (let ((evaluation (rbx-parse-evaluation
+                     '(("result" . (("outcome" . "accepted")))))))
+    (should-not (rbx-evaluation-checker-time evaluation))
+    (should-not (rbx-evaluation-interactor-time evaluation))))
+
 (ert-deftest rbx-parse-report-reads-time-limit-and-untuned-suspicion ()
   (let ((report (rbx--parse-solution-report
                  '(("path" . "a.cpp") ("index" . 0) ("timeLimit" . 1.5)

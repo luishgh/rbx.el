@@ -488,6 +488,24 @@
                      lines))
     (should (equal (cdr result) "expected 5 but produced 6"))))
 
+(ert-deftest rbx-testcase-info-lines-shows-the-other-times-that-exist ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (full (rbx-evaluation-create :outcome "accepted" :time 0.1
+                                      :wall-time 0.25 :checker-time 0.012
+                                      :interactor-time 0.3))
+         (bare (rbx-evaluation-create :outcome "accepted" :time 0.1))
+         (lines-for (lambda (evaluation)
+                      (car (rbx--testcase-info-lines
+                            (list :kind 'run-testcase :testcase entry
+                                  :evaluation evaluation))))))
+    (let ((lines (funcall lines-for full)))
+      (should (member "Wall time: 250 ms" lines))
+      (should (member "Checker time: 12 ms" lines))
+      (should (member "Interactor time: 300 ms" lines)))
+    (let ((lines (funcall lines-for bare)))
+      (should-not (cl-some (lambda (line) (string-match-p "time:" line)) lines))
+      (should-not (member "" lines)))))
+
 (ert-deftest rbx-testcase-info-lines-handles-run-testcase-without-evaluation ()
   (let* ((entry (rbx-testcase-create :group "main" :index 0))
          (context (list :kind 'run-testcase :testcase entry :evaluation nil))

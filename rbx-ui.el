@@ -823,6 +823,17 @@ in an `rbx-testset-testcase'."
         (rbx-testset-testcase-entry testcase)
       testcase)))
 
+(defun rbx--other-time-lines (evaluation)
+  "Return info lines for the times of EVALUATION besides its CPU time.
+Only the times the run recorded appear."
+  (cl-loop for (label . seconds)
+           in `(("Wall time" . ,(rbx-evaluation-wall-time evaluation))
+                ("Checker time" . ,(rbx-evaluation-checker-time evaluation))
+                ("Interactor time"
+                 . ,(rbx-evaluation-interactor-time evaluation)))
+           when seconds
+           collect (format "%s: %s" label (rbx-format-time seconds))))
+
 (defun rbx--testcase-info-lines (context)
   "Return (METADATA-LINES . MESSAGE) describing the testcase at CONTEXT.
 
@@ -851,7 +862,8 @@ afterwards, or nil when there is none."
                               (rbx-format-memory
                                (rbx-evaluation-memory evaluation))
                               (and (rbx-evaluation-sanitizer-warnings evaluation)
-                                  "sanitizer"))))
+                                  "sanitizer")))
+                        (rbx--other-time-lines evaluation))
                 (rbx-evaluation-message evaluation)))))
       ('testset-testcase
        (let* ((test (rbx-testset-testcase-test testcase))
