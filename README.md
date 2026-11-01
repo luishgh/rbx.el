@@ -239,6 +239,9 @@ operation. The one exception is statement variable hints (see Features),
 which call the read-only `rbx vars`/`rbx vars --render`. The testset and run
 surfaces are the primary supported workflow for the initial release.
 
+[docs/vscode-parity.md](docs/vscode-parity.md) lists how rbx.el maps, adapts or
+discards each feature of the VS Code extension.
+
 ## Development
 
 The project uses ERT and a test-first workflow. Run the complete local suite:
