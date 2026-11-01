@@ -1596,6 +1596,39 @@ Blank and unrecognized lines are skipped."
     (stderr "err │ " rbx-hue-dim))
   "Margin label and face for each pipe of an interaction transcript.")
 
+(defvar-local rbx--interaction-path nil
+  "Capture file shown by the current interaction transcript buffer.")
+
+(defun rbx--interaction-file-text (entries)
+  "Render parsed interaction ENTRIES as the text of an `.interaction' file.
+This is the format samples use: `<' for the interactor, `>' for the
+solution and `!' for its stderr, each followed by one space and the data."
+  (mapconcat
+   (lambda (entry)
+     (let ((prefix (pcase (car entry)
+                     ('interactor "<") ('solution ">") (_ "!")))
+           (data (cdr entry)))
+       (concat prefix (unless (string-empty-p data) " ") data "\n")))
+   entries ""))
+
+(defun rbx-copy-interaction ()
+  "Copy the interaction at point as the text of an `.interaction' file.
+Works on a testcase section or in the transcript buffer, so a run can be
+turned into a sample."
+  (interactive)
+  (let ((path (or rbx--interaction-path
+                  (rbx--context-path (rbx--context) 'interaction))))
+    (unless (and path (file-readable-p path))
+      (user-error "%s" "No interaction recorded for this testcase.  Re-run with `rbx -cp run' to capture it"))
+    (let ((text (rbx--interaction-file-text
+                 (rbx--parse-interaction
+                  (with-temp-buffer
+                    (insert-file-contents path)
+                    (buffer-string))))))
+      (kill-new text)
+      (message "Copied the interaction (%d lines)"
+               (length (split-string text "\n" t))))))
+
 (defun rbx--interaction-buffer (path)
   "Return a read-only buffer rendering the interaction capture at PATH.
 Only the payload is inserted, so copying a line copies data; who wrote it
@@ -1619,6 +1652,7 @@ is shown in a margin label that is not part of the text."
                      'line-prefix (propertize label 'face face)
                      'wrap-prefix (propertize label 'face face)))))
         (goto-char (point-min)))
+      (setq rbx--interaction-path path)
       (setq buffer-read-only t))
     buffer))
 
@@ -2120,6 +2154,8 @@ The file is visited read-only and reverted when a rebuild replaces it."
     ("w" "Copy stress generator call" rbx-copy-stress-generator
      :if-mode rbx-view-mode)
     ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
+    ("C" "Copy interaction as .interaction" rbx-copy-interaction
+     :if-mode rbx-view-mode)
     ("y" "Copy artifact path" rbx-copy-path :if-mode rbx-view-mode)
     ("j" "Reveal in Dired" rbx-reveal-in-dired :if-mode rbx-view-mode)
     ("s" "Visit source" rbx-visit-testcase-source :if-mode rbx-view-mode)

@@ -1207,6 +1207,37 @@ STEM is the generated testcase basename, defaulting to \"000\"."
                                               'line-prefix))))
           (kill-buffer buffer))))))
 
+(ert-deftest rbx-interaction-file-text-renders-the-sample-format ()
+  (should (equal (rbx--interaction-file-text
+                  (rbx--parse-interaction
+                   "I:\nS:\nI:3\nS:? 1\nS:\n!oops\nI:ok\n"))
+                 "< 3\n> ? 1\n>\n! oops\n< ok\n"))
+  (should (equal (rbx--interaction-file-text nil) "")))
+
+(ert-deftest rbx-copy-interaction-round-trips-a-capture ()
+  (rbx-test-with-directory root
+    (let* ((path (rbx-test-write root "dag.pio" "<\n>\n<3\n>? 1\n!oops\n"))
+           (context (list :kind 'run-testcase))
+           (kill-ring nil))
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context))
+                ((symbol-function 'rbx--context-path)
+                 (lambda (_context channel)
+                   (and (eq channel 'interaction) path))))
+        (rbx-copy-interaction))
+      (should (equal (car kill-ring) "< 3\n> ? 1\n! oops\n"))
+      ;; From the transcript buffer itself.
+      (setq kill-ring nil)
+      (let ((buffer (rbx--interaction-buffer path)))
+        (unwind-protect
+            (with-current-buffer buffer (rbx-copy-interaction))
+          (kill-buffer buffer)))
+      (should (equal (car kill-ring) "< 3\n> ? 1\n! oops\n")))))
+
+(ert-deftest rbx-copy-interaction-explains-a-missing-capture ()
+  (cl-letf (((symbol-function 'rbx--context) (lambda () (list :kind 'run-testcase)))
+            ((symbol-function 'rbx--context-path) (lambda (&rest _) "/nonexistent.pio")))
+    (should-error (rbx-copy-interaction) :type 'user-error)))
+
 (ert-deftest rbx-interaction-channel-explains-a-missing-capture ()
   (let ((err (should-error (rbx--read-only-file-buffer
                             "/nonexistent/dag.pio"
