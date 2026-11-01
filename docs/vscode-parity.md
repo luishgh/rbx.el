@@ -168,4 +168,4 @@ mirrors.
 | `PATH` then login-shell lookup | `mapped` | `rbx-resolve-executable` |
 | Manual override (`rbx.executable`) | `mapped` | `rbx-program`, `rbx-yq-program` |
 | Views keep working without `rbx` | `mapped` | Only statement hints need it; `yq` stays required and its absence is reported |
-| Per-folder override | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Per-folder override | `mapped` | `rbx-program` in `.dir-locals.el`; Emacs prompts for unsafe values |

@@ -205,7 +205,9 @@ nothing, never a guess.
   Resolved against the process `PATH` and, failing that, a login shell
   (`$SHELL -lic "command -v rbx"`) — useful when Emacs was launched from a
   desktop icon rather than a terminal. A total failure to find it is
-  reported once via `display-warning`, not silently.
+  reported once via `display-warning`, not silently.  It can be set per
+  package in a `.dir-locals.el` (`((nil . ((rbx-program . "/opt/rbx/bin/rbx"))))`)
+  to pin a different rbx version; Emacs asks before trusting such a value.
 - `rbx-yq-program`: path to the mikefarah/yq executable used to read YAML
   artifacts, resolved the same way as `rbx-program`.  If none is found,
   views signal an error and `rbx-mode` stays off; after installing it or

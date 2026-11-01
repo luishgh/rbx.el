@@ -147,6 +147,32 @@
                                             '("vars" "--json") "in")))
         (should (equal result '("out" "" 0)))))))
 
+(ert-deftest rbx-statement-run-honours-a-directory-local-program ()
+  (rbx-test-with-directory root
+    (rbx-test-write root ".dir-locals.el"
+                    "((nil . ((rbx-program . \"/opt/rbx-2.3/bin/rbx\"))))")
+    (let ((enable-local-variables :all) configured)
+      ;; The caller's buffer lives elsewhere, as in a process sentinel.
+      (with-temp-buffer
+        (setq default-directory temporary-file-directory)
+        (cl-letf (((symbol-function 'rbx-resolve-executable)
+                   (lambda (program &rest _) (setq configured program) nil))
+                  ((symbol-function 'display-warning) #'ignore))
+          (rbx-statement--run root nil nil #'ignore)))
+      (should (equal configured "/opt/rbx-2.3/bin/rbx")))))
+
+(ert-deftest rbx-statement-run-honours-a-buffer-local-program ()
+  (rbx-test-with-directory root
+    (let (configured)
+      (with-temp-buffer
+        (setq default-directory (file-name-as-directory root))
+        (setq-local rbx-program "/local/rbx")
+        (cl-letf (((symbol-function 'rbx-resolve-executable)
+                   (lambda (program &rest _) (setq configured program) nil))
+                  ((symbol-function 'display-warning) #'ignore))
+          (rbx-statement--run root nil nil #'ignore)))
+      (should (equal configured "/local/rbx")))))
+
 (ert-deftest rbx-statement-run-declines-without-attempting-a-spawn ()
   (rbx-test-with-directory root
     (let (spawned result warned)

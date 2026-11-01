@@ -196,6 +196,22 @@ unresolvable name, or an unusable filter pipeline -- is silently dropped."
               (push ref refs))))))
     (nreverse refs)))
 
+(defun rbx-statement--program (root)
+  "Return the `rbx-program' that applies to the package at ROOT.
+
+A buffer-local value wins when the current buffer lives under ROOT.
+Otherwise the value is read as ROOT's directory-local variables set it, since
+callers often run from a process sentinel in an unrelated buffer.  The option
+is deliberately not `safe-local-variable': a program path can run arbitrary
+code, so Emacs prompts before honouring a directory-local one."
+  (if (and (local-variable-p 'rbx-program)
+           (file-in-directory-p default-directory root))
+      rbx-program
+    (with-temp-buffer
+      (setq default-directory (file-name-as-directory root))
+      (hack-dir-local-variables-non-file-buffer)
+      rbx-program)))
+
 (defun rbx-statement--run (root args input callback)
   "Run rbx with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
 
@@ -203,7 +219,8 @@ Resolves `rbx-program' via `rbx-resolve-executable' first; when it cannot
 be found at all, warns once and calls CALLBACK as though the process had
 failed, without attempting a spawn that can only fail.  See
 `rbx-run-process' for CALLBACK's contract otherwise."
-  (let ((program (rbx-resolve-executable rbx-program "rbx" root)))
+  (let* ((configured (rbx-statement--program root))
+         (program (rbx-resolve-executable configured "rbx" root)))
     (if (null program)
         (progn
           (rbx--warn-once
@@ -212,7 +229,7 @@ failed, without attempting a spawn that can only fail.  See
             "rbx.el could not find rbx (checked `rbx-program' (%s), PATH, \
 and a login shell); statement variable hints are unavailable until it is \
 installed or `rbx-program' is set."
-            rbx-program))
+            configured))
           (funcall callback "" "" nil))
       (rbx-run-process root program args input callback))))
 
