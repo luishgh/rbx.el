@@ -1395,6 +1395,49 @@ STEM is the generated testcase basename, defaulting to \"000\"."
       (rbx-copy-stress-generator))
     (should (equal (car kill-ring) "gen 1 10 --seed=7"))))
 
+(defun rbx-ui-test--artifact-contexts (root)
+  "Return a run and a testset testcase context for a package at ROOT."
+  (let* ((package (rbx-package-create :root (file-name-as-directory root)
+                                      :build-dir "build"))
+         (entry (rbx-testcase-create :group "main" :index 0
+                                     :input-path "build/tests/main/dag.in")))
+    (list (list :kind 'run-testcase :package package :solution-index 2
+                :testcase entry)
+          (list :kind 'testset-testcase :package package
+                :testcase (rbx-testset-testcase-create :entry entry
+                                                       :stem "000")))))
+
+(ert-deftest rbx-copy-path-puts-the-artifact-path-on-the-kill-ring ()
+  (rbx-test-with-directory root
+    (pcase-let ((`(,run ,testset) (rbx-ui-test--artifact-contexts root)))
+      (let ((kill-ring nil))
+        (cl-letf (((symbol-function 'rbx--context) (lambda () testset)))
+          (rbx-copy-path))
+        (should (equal (car kill-ring)
+                       (expand-file-name "build/tests/main/000.in" root))))
+      (let ((kill-ring nil))
+        (cl-letf (((symbol-function 'rbx--context) (lambda () run)))
+          (rbx-copy-path 'output))
+        (should (equal (car kill-ring)
+                       (expand-file-name ".rbx/runs/2/main/dag.out" root)))))))
+
+(ert-deftest rbx-reveal-in-dired-lands-on-the-artifact ()
+  (rbx-test-with-directory root
+    (let* ((context (cadr (rbx-ui-test--artifact-contexts root)))
+           (path (rbx-test-write root "build/tests/main/000.in" "1\n")))
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context)))
+        (save-window-excursion
+          (rbx-reveal-in-dired)
+          (should (derived-mode-p 'dired-mode))
+          (should (equal (dired-get-filename) path))
+          (kill-buffer))))))
+
+(ert-deftest rbx-reveal-in-dired-explains-a-missing-artifact ()
+  (rbx-test-with-directory root
+    (let ((context (cadr (rbx-ui-test--artifact-contexts root))))
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context)))
+        (should-error (rbx-reveal-in-dired) :type 'user-error)))))
+
 (ert-deftest rbx-adhoc-view-reads-the-last-irun ()
   (rbx-test-with-directory root
     (rbx-test-write

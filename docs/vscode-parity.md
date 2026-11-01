@@ -73,7 +73,7 @@ mirrors.
 | Card: test origin, linking to real files | `mapped` | `m`, then `rbx-visit-testcase-source` (`s`) |
 | Card: wall, checker and interactor times | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 | Copy interaction as `.interaction` | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
-| Copy paths and reveal in the file browser | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Copy paths and reveal in the file browser | `mapped` | `rbx-copy-path` (`y`) and `rbx-reveal-in-dired` (`j`) in the dispatch; a prefix argument picks the artifact |
 
 ## Compilation findings
 

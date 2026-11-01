@@ -20,6 +20,7 @@
 (require 'browse-url)
 (require 'compile)
 (require 'diff)
+(require 'dired)
 (require 'eieio)
 (require 'font-lock)
 (require 'magit-section)
@@ -1888,6 +1889,36 @@ wraps the test, or a `run-testcase' context, whose :testcase value is a bare
     (kill-new call)
     (message "Copied: %s" call)))
 
+(defun rbx--artifact-path-at-point (&optional channel)
+  "Return the existing path of CHANNEL (default `input') at point.
+Signal a `user-error' when there is none on disk."
+  (let ((path (rbx--context-path (rbx--context) (or channel 'input))))
+    (unless (and path (file-exists-p path))
+      (user-error "No %s artifact at point" (or channel 'input)))
+    path))
+
+(defun rbx-copy-path (&optional channel)
+  "Copy the path of the testcase artifact at point to the kill ring.
+CHANNEL defaults to the input; interactively, a prefix argument asks."
+  (interactive (list (and current-prefix-arg (rbx--read-channel))))
+  (let ((path (rbx--context-path (rbx--context) (or channel 'input))))
+    (unless path (user-error "No artifact at point"))
+    (kill-new path)
+    (message "Copied: %s" path)))
+
+(defun rbx-reveal-in-dired (&optional channel)
+  "Show the testcase artifact at point in Dired.
+CHANNEL defaults to the input; interactively, a prefix argument asks."
+  (interactive (list (and current-prefix-arg (rbx--read-channel))))
+  (dired-jump t (rbx--artifact-path-at-point channel)))
+
+(defun rbx--read-channel ()
+  "Read an artifact channel name for the testcase at point."
+  (intern (completing-read
+           "Artifact: "
+           '("input" "expected" "output" "stderr" "log" "interaction")
+           nil t)))
+
 (defun rbx-view-visit ()
   "Visit or toggle the rbx section at point."
   (interactive)
@@ -2089,6 +2120,8 @@ The file is visited read-only and reverted when a rebuild replaces it."
     ("w" "Copy stress generator call" rbx-copy-stress-generator
      :if-mode rbx-view-mode)
     ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
+    ("y" "Copy artifact path" rbx-copy-path :if-mode rbx-view-mode)
+    ("j" "Reveal in Dired" rbx-reveal-in-dired :if-mode rbx-view-mode)
     ("s" "Visit source" rbx-visit-testcase-source :if-mode rbx-view-mode)
     ("V" "Open validator" rbx-open-validator :if-mode rbx-view-mode)]
    ["Sticky testcase channel"
