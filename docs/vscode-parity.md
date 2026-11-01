@@ -42,7 +42,7 @@ mirrors.
 | Filter box over the run tree | `discarded` | Too complex for the benefit; re-running `rbx` on a subset of solutions covers most of the need |
 | Testcases-as-tiles layout | `discarded` | Magit sections are line-based, so a grid needs its own navigation and context |
 | Flag testcases that failed validation (`--on-invalid=warn`) | `proposed` | [#7](https://github.com/luishgh/rbx.el/issues/7) |
-| Notice when a run was interrupted or ended early | `gap` | How the run ended is in `report.yml`; rbx.el does not read it |
+| Notice when a run was interrupted or ended early | `proposed` | [#7](https://github.com/luishgh/rbx.el/issues/7) |
 | Notification when a dispatched run passed invalid tests | `discarded` | Only fires for runs the extension started (D1); the `gap` above covers terminal runs |
 
 ## Contests
