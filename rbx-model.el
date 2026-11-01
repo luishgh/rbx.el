@@ -199,20 +199,22 @@ declared entry."
 (defun rbx--load-artifact (path parser)
   "Read PATH with PARSER, reusing an unchanged parsed artifact."
   (let* ((absolute (expand-file-name path))
+         ;; One file can have several readers (the problem manifest does).
+         (key (cons absolute parser))
          (state (rbx--artifact-file-state absolute))
          (missing (make-symbol "missing"))
-         (cached (gethash absolute rbx--artifact-cache missing)))
+         (cached (gethash key rbx--artifact-cache missing)))
     (cond
      ((null state)
-      (remhash absolute rbx--artifact-cache)
+      (remhash key rbx--artifact-cache)
       nil)
      ((and (not (eq cached missing)) (equal state (car cached)))
       (cdr cached))
      (t
       (let ((parsed (funcall parser (rbx-read-yaml absolute))))
         (if parsed
-            (puthash absolute (cons state parsed) rbx--artifact-cache)
-          (remhash absolute rbx--artifact-cache))
+            (puthash key (cons state parsed) rbx--artifact-cache)
+          (remhash key rbx--artifact-cache))
         parsed)))))
 
 (defun rbx--model-field (root &rest keys)
@@ -835,6 +837,118 @@ no testcases is omitted."
   "Read PACKAGE's declared statements from its problem manifest."
   (rbx--load-artifact (rbx-problem-manifest-path package)
                       #'rbx-parse-problem-statements))
+
+;;;; Declared outcomes in the problem manifest
+
+(defconst rbx--outcome-aliases
+  '(("ANY")
+    ("ACCEPTED" "ac" "correct")
+    ("ACCEPTED_OR_TLE" "accepted or time limit exceeded" "accepted or tle"
+     "ac or tle" "ac/tle" "ac+tle")
+    ("WRONG_ANSWER" "wa")
+    ("INCORRECT" "fail")
+    ("PARTIALLY_CORRECT" "partial" "pc")
+    ("RUNTIME_ERROR" "rte" "re")
+    ("TIME_LIMIT_EXCEEDED" "timeout" "tle" "tl")
+    ("MEMORY_LIMIT_EXCEEDED" "mle" "ml")
+    ("OUTPUT_LIMIT_EXCEEDED" "ole" "ol")
+    ("TLE_OR_RTE" "tle or rte" "tle/rte" "tle+rte" "tle or re" "tle+re")
+    ("MLE_OR_RTE" "mle or rte" "mle/rte" "mle+rte" "ml or re" "ml+re")
+    ("TLE_OR_MLE" "tle or mle" "tle/mle" "tle+mle" "tl or ml" "tl+ml")
+    ("JUDGE_FAILED" "jf")
+    ("COMPILATION_ERROR" "ce"))
+  "Spellings rbx accepts for each declared outcome, after its canonical name.
+Mirrors the `ExpectedOutcome' aliases in rbx's `schema.py'; the canonical
+name itself and its lower-case words are always accepted too.  Compare it
+against upstream when bumping rbx.")
+
+(defun rbx--outcome-key (string)
+  "Return STRING the way rbx compares outcome spellings.
+That is lower-cased with spaces, dashes, underscores and the punctuation
+`.:;,' removed."
+  (replace-regexp-in-string "[ _.:;,-]" "" (downcase string)))
+
+(defconst rbx--outcome-lookup
+  (let ((table (make-hash-table :test #'equal)))
+    (dolist (entry rbx--outcome-aliases)
+      (dolist (spelling (cons (car entry) (cdr entry)))
+        (puthash (rbx--outcome-key spelling) (car entry) table)))
+    table)
+  "Table from normalized outcome spellings to canonical declared outcomes.")
+
+(defun rbx-normalize-outcome (spelling)
+  "Return the canonical declared outcome for SPELLING, or nil.
+SPELLING is how a setter wrote it in `problem.rbx.yml', e.g. `ac/tle'."
+  (and (stringp spelling)
+       (gethash (rbx--outcome-key spelling) rbx--outcome-lookup)))
+
+(defun rbx-parse-problem-solutions (raw)
+  "Parse RAW (a problem manifest mapping) into declared `rbx-solution' entries.
+Each keeps its path pattern as written and its canonical outcome, which is
+`ANY' when none is given.  Entries without a path, or with an outcome rbx
+would reject, are dropped, because the manifest is edited by hand."
+  (when (rbx--wire-mapping-p raw)
+    (cl-loop for solution in (rbx--wire-sequence
+                              (rbx--model-field raw "solutions"))
+             for index from 0
+             for path = (rbx--model-string solution "path")
+             for spelling = (rbx--model-field solution "outcome")
+             for outcome = (if (eq spelling rbx--model-missing)
+                               "ANY"
+                             (rbx-normalize-outcome (rbx--wire-string spelling)))
+             when (and path outcome)
+             collect (rbx-solution-create :path path :index index
+                                          :expected-outcome outcome))))
+
+(defun rbx-load-problem-solutions (package)
+  "Read the solutions PACKAGE's problem manifest declares."
+  (rbx--load-artifact (rbx-problem-manifest-path package)
+                      #'rbx-parse-problem-solutions))
+
+(defun rbx--glob-regexp (pattern)
+  "Return a regexp matching package-relative paths against glob PATTERN.
+`**/' spans any directories, `*' and `?' stay within one path segment."
+  (let ((index 0) (length (length pattern)) (parts nil))
+    (while (< index length)
+      (let ((char (aref pattern index)))
+        (cond
+         ((and (eq char ?*) (< (1+ index) length)
+               (eq (aref pattern (1+ index)) ?*))
+          (if (and (< (+ index 2) length) (eq (aref pattern (+ index 2)) ?/))
+              (progn (push "\\(?:.*/\\)?" parts) (setq index (+ index 2)))
+            (push ".*" parts)
+            (setq index (1+ index))))
+         ((eq char ?*) (push "[^/]*" parts))
+         ((eq char ?\?) (push "[^/]" parts))
+         (t (push (regexp-quote (string char)) parts))))
+      (setq index (1+ index)))
+    (concat "\\`" (apply #'concat (nreverse parts)) "\\'")))
+
+(defun rbx--solution-pattern-specificity (pattern)
+  "Return how specific the manifest path PATTERN is; higher is more specific.
+An exact path beats every glob, and a glob with more literal characters
+beats one with fewer."
+  (if (string-match-p "[*?]" pattern)
+      (length (replace-regexp-in-string "[*?]" "" pattern))
+    most-positive-fixnum))
+
+(defun rbx-declared-outcome (package file)
+  "Return the outcome PACKAGE's manifest declares for FILE, or nil.
+The result is canonical, e.g. `ACCEPTED_OR_TLE'.  When several entries
+match, the most specific wins, and the earliest among equals.  Nil means
+the file is not declared, or the manifest is unreadable."
+  (let ((relative (file-relative-name (expand-file-name file)
+                                      (rbx-package-root package)))
+        best best-rank)
+    (dolist (solution (rbx-load-problem-solutions package))
+      (let* ((pattern (string-join
+                       (split-string (rbx-solution-path solution) "[/\\\\]+" t)
+                       "/"))
+             (rank (rbx--solution-pattern-specificity pattern)))
+        (when (and (or (null best-rank) (> rank best-rank))
+                   (string-match-p (rbx--glob-regexp pattern) relative))
+          (setq best solution best-rank rank))))
+    (and best (rbx-solution-expected-outcome best))))
 
 (defconst rbx--lang-placeholder "{lang}"
   "The placeholder a statement `file' may use for its language.")

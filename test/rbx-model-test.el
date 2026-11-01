@@ -682,5 +682,88 @@ PATHS are created under the package first."
     (should-not (rbx-run-report-finished (parse)))
     (should-not (rbx-run-report-exit-status (parse)))))
 
+;;;; Declared outcome of a solution file
+
+(ert-deftest rbx-normalize-outcome-follows-rbx-aliases ()
+  (should (equal (rbx-normalize-outcome "ac/tle") "ACCEPTED_OR_TLE"))
+  (should (equal (rbx-normalize-outcome "AC or TLE") "ACCEPTED_OR_TLE"))
+  (should (equal (rbx-normalize-outcome "fail") "INCORRECT"))
+  (should (equal (rbx-normalize-outcome "Accepted") "ACCEPTED"))
+  (should (equal (rbx-normalize-outcome "wrong-answer") "WRONG_ANSWER"))
+  (should (equal (rbx-normalize-outcome "TIME_LIMIT_EXCEEDED")
+                 "TIME_LIMIT_EXCEEDED"))
+  (should (equal (rbx-normalize-outcome "tl+ml") "TLE_OR_MLE"))
+  (should-not (rbx-normalize-outcome "nonsense"))
+  (should-not (rbx-normalize-outcome nil))
+  (should-not (rbx-normalize-outcome 3)))
+
+(defun rbx-model-test--declared (manifest file)
+  "Return the outcome MANIFEST declares for FILE in a temporary package."
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" manifest)
+    (rbx-reset-artifact-cache)
+    (rbx-declared-outcome (rbx--make-package root)
+                          (expand-file-name file root))))
+
+(ert-deftest rbx-declared-outcome-reads-an-exact-path ()
+  (let ((manifest (concat "solutions:\n"
+                          "  - path: sols/main.cpp\n    outcome: accepted\n"
+                          "  - path: sols/wa.cpp\n    outcome: wa\n"
+                          "  - path: sols/any.cpp\n")))
+    (should (equal (rbx-model-test--declared manifest "sols/wa.cpp")
+                   "WRONG_ANSWER"))
+    (should (equal (rbx-model-test--declared manifest "sols/main.cpp")
+                   "ACCEPTED"))
+    (should (equal (rbx-model-test--declared manifest "sols/any.cpp") "ANY"))))
+
+(ert-deftest rbx-declared-outcome-matches-globs ()
+  (let ((manifest (concat "solutions:\n"
+                          "  - path: sols/*.cpp\n    outcome: ac/tle\n"
+                          "  - path: wrong/**/*.py\n    outcome: fail\n")))
+    (should (equal (rbx-model-test--declared manifest "sols/a.cpp")
+                   "ACCEPTED_OR_TLE"))
+    (should-not (rbx-model-test--declared manifest "sols/deep/a.cpp"))
+    (should (equal (rbx-model-test--declared manifest "wrong/x/y/a.py")
+                   "INCORRECT"))
+    (should (equal (rbx-model-test--declared manifest "wrong/a.py")
+                   "INCORRECT"))))
+
+(ert-deftest rbx-declared-outcome-prefers-the-most-specific-entry ()
+  (let ((manifest (concat "solutions:\n"
+                          "  - path: sols/*.cpp\n    outcome: accepted\n"
+                          "  - path: sols/slow*.cpp\n    outcome: tle\n"
+                          "  - path: sols/slow1.cpp\n    outcome: wa\n")))
+    (should (equal (rbx-model-test--declared manifest "sols/slow1.cpp")
+                   "WRONG_ANSWER"))
+    (should (equal (rbx-model-test--declared manifest "sols/slow2.cpp")
+                   "TIME_LIMIT_EXCEEDED"))
+    (should (equal (rbx-model-test--declared manifest "sols/fast.cpp")
+                   "ACCEPTED"))))
+
+(ert-deftest rbx-declared-outcome-ignores-undeclared-and-broken-manifests ()
+  (should-not (rbx-model-test--declared
+               "solutions:\n  - path: sols/a.cpp\n" "sols/b.cpp"))
+  (should-not (rbx-model-test--declared "name: Demo\n" "sols/b.cpp"))
+  (should-not (rbx-model-test--declared
+               "solutions:\n  - path: [unclosed\n    outcome: ac\n"
+               "sols/a.cpp"))
+  (should-not (rbx-model-test--declared
+               "solutions:\n  - path: sols/a.cpp\n    outcome: bogus\n"
+               "sols/a.cpp"))
+  (should-not (rbx-model-test--declared "solutions: 3\n" "sols/a.cpp")))
+
+(ert-deftest rbx-problem-manifest-readers-do-not-share-a-cache-entry ()
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml"
+                    (concat "statements:\n  - file: s.tex\n"
+                            "solutions:\n  - path: a.cpp\n    outcome: ac\n"))
+    (rbx-reset-artifact-cache)
+    (let ((package (rbx--make-package root)))
+      (should (rbx-load-problem-statements package))
+      (should (equal (rbx-declared-outcome
+                      package (expand-file-name "a.cpp" root))
+                     "ACCEPTED"))
+      (should (rbx-load-problem-statements package)))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here

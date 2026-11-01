@@ -9,6 +9,11 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The outcome `problem.rbx.yml` declares for a solution is shown in the mode
+  line while you edit it (#8), before any run exists
+  (`rbx-solution-declared-outcome`).  Aliases such as `ac/tle` and glob
+  paths are resolved, the most specific entry wins, and an unreadable
+  manifest shows nothing.
 - Run view warnings that a result may be less trustworthy than it looks
   (#7): testcases a validator rejected under `--on-invalid=warn` are counted
   in the header, marked `⚠ invalid` and explained on the info card, with a

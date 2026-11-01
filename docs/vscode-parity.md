@@ -150,7 +150,7 @@ mirrors.
 
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
-| Declared outcome while editing a solution (`rbx.solutionCodeLens`, `rbx.solutionStatus`) | `proposed` | [#8](https://github.com/luishgh/rbx.el/issues/8) |
+| Declared outcome while editing a solution (`rbx.solutionCodeLens`, `rbx.solutionStatus`) | `adapted` | Mode line of a solution buffer under `rbx-mode` (`rbx-solution-declared-outcome`), read from `problem.rbx.yml`; no separate status item |
 | Explorer and tab badges (`rbx.decorateExplorer`) | `discarded` | The declared outcome in the solution buffer gives most of the value, and tabs have no equivalent |
 | Assets view, across problems and by problem | `discarded` | Needs reimplementing rbx's asset resolution, or a second exception to the no-invoke rule for `rbx assets --json` |
 

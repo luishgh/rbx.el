@@ -188,7 +188,11 @@ problem is currently running.
 
 Enable `rbx-mode` in solution buffers to bind `C-c r` and publish findings from
 the most recent compile phase through Flymake. Diagnostics refresh when the rbx
-artifacts change.
+artifacts change.  The same buffers show the outcome `problem.rbx.yml`
+declares for the solution (`AC`, say, in the run view's colours) in the mode line, which is
+available before the first run (it sits among the mode line's misc info,
+so Doom Modeline shows it without enabling its minor modes); turn it off with
+`rbx-solution-declared-outcome`.
 
 Enable `rbx-mode` in a statement buffer (anything `problem.rbx.yml` declares
 under `statements:`) to show what each `\VAR{...}` reference resolves to,
@@ -202,6 +206,8 @@ nothing, never a guess.
 - `rbx-testcase-layout`: split the initial testcase panes `below` or `beside`.
 - `rbx-solution-label`: show solution paths as `full`, `trimmed`, or `basename`.
 - `rbx-compilation-diagnostics`: enable or disable the Flymake backend.
+- `rbx-solution-declared-outcome`: show a solution's declared outcome in the
+  mode line.
 - `rbx-statement-var-hints`: enable or disable `\VAR{...}` value hints.
 - `rbx-program`: path to the `rbx` executable used for statement hints.
   Resolved against the process `PATH` and, failing that, a login shell

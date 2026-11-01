@@ -128,7 +128,9 @@ Green doesn't prove full compatibility. The suite scaffolds the `default` preset
 so a new value that only appears with, say, points scoring never reaches it.
 Compare `vscode/src/rbx/rbxEnums.json`, `model.ts`, `manifest.ts` and `outcome.ts`
 across the range: they are upstream's own reading of these artifacts. Handle new
-values the same test-first way.
+values the same test-first way.  In particular, `rbx--outcome-aliases` in
+`rbx-model.el` mirrors the outcome aliases in `rbxEnums.json` (and rbx's
+`ExpectedOutcome`); update it when those change.
 
 If a failure can't be resolved, stop here and report it, leaving the work on the
 branch uncommitted. A feature proposal against a bump that doesn't land is

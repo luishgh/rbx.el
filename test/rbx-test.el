@@ -356,6 +356,74 @@
         (should-not (rbx--statement-package))
         (should (rbx-package-p (rbx--view-or-selected-package)))))))
 
+;;;; Declared outcome in the mode line
+
+(defun rbx-test--declared-segment ()
+  "Return the declared outcome text `rbx-mode' puts in the mode line.
+`format-mode-line' renders nothing in batch Emacs, so evaluate the
+entry the mode added to `mode-line-misc-info' by hand."
+  (let ((entry (assq 'rbx--declared-outcome mode-line-misc-info)))
+    (if (and entry (symbol-value (car entry)))
+        (substring-no-properties (eval (cadr (cadr entry)) t))
+      "")))
+
+(ert-deftest rbx-mode-shows-the-declared-outcome-in-the-mode-line ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "sols/a.cpp" "int main() {}\n"))
+          (rbx-compilation-diagnostics nil)
+          (rbx-statement-var-hints nil))
+      (rbx-test-write root "problem.rbx.yml"
+                      "solutions:\n  - path: sols/a.cpp\n    outcome: ac/tle\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (cl-letf (((symbol-function 'rbx-watch-package)
+                       (lambda (&rest _args) 'watcher))
+                      ((symbol-function 'rbx-stop-watcher) #'ignore))
+              (with-current-buffer buffer
+                (rbx-mode 1)
+                (should (string-match-p "AC or TLE"
+                                        (rbx-test--declared-segment)))
+                (should-not (string-match-p "declared"
+                                            (rbx-test--declared-segment)))
+                ;; The manifest changes: the next refresh follows it.
+                (rbx-test-write root "problem.rbx.yml"
+                                "solutions:\n  - path: sols/a.cpp\n    outcome: wa\n")
+                (rbx-reset-artifact-cache)
+                (rbx--refresh-declared-outcome)
+                (should (string-match-p "WA" (rbx-test--declared-segment)))
+                ;; A half-written manifest shows nothing, not an error.
+                (rbx-test-write root "problem.rbx.yml" "solutions: [unclosed\n")
+                (rbx-reset-artifact-cache)
+                (rbx--refresh-declared-outcome)
+                (should (equal (rbx-test--declared-segment) ""))
+                (rbx-mode -1)))
+          (with-current-buffer buffer (setq rbx--artifact-watcher nil))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-mode-declared-outcome-can-be-turned-off ()
+  (rbx-test-with-directory root
+    (let ((source (rbx-test-write root "sols/a.cpp" "int main() {}\n"))
+          (rbx-solution-declared-outcome nil)
+          (rbx-compilation-diagnostics nil)
+          (rbx-statement-var-hints nil))
+      (rbx-test-write root "problem.rbx.yml"
+                      "solutions:\n  - path: sols/a.cpp\n    outcome: ac\n")
+      (rbx-reset-artifact-cache)
+      (let ((buffer (find-file-noselect source)))
+        (unwind-protect
+            (with-current-buffer buffer
+              (rbx-mode 1)
+              (should (equal (rbx-test--declared-segment) ""))
+              (rbx-mode -1))
+          (kill-buffer buffer))))))
+
+(ert-deftest rbx-declared-outcome-is-styled-as-an-expectation ()
+  (let ((text (rbx--declared-outcome-lighter "ACCEPTED")))
+    (should (string-match-p "AC" text))
+    (should (equal (get-text-property (1- (length text)) 'face text)
+                   (rbx--expected-face-value "ACCEPTED")))))
+
 (provide 'rbx-test)
 ;;; rbx-test.el ends here
 

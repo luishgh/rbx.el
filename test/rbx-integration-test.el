@@ -275,6 +275,22 @@ Statement and stress failures are findings rbx publishes, not errors."
         (should (string-match-p "1 invalid testcase" (buffer-string)))
         (should (string-match-p "⚠ invalid" (buffer-string)))))))
 
+(ert-deftest rbx-integration-declared-outcome-matches-the-skeleton ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-package demo
+    (rbx-integration-test--run demo "run")
+    (rbx-reset-artifact-cache)
+    (let* ((package (rbx-find-package demo))
+           (skeleton (rbx-load-skeleton package)))
+      (should (rbx-skeleton-solutions skeleton))
+      ;; The manifest reader and rbx's own resolution must agree on every
+      ;; solution, otherwise the alias table has drifted.
+      (dolist (solution (rbx-skeleton-solutions skeleton))
+        (should (equal (rbx-declared-outcome
+                        package (rbx-package-file-path
+                                 package (rbx-solution-path solution)))
+                       (rbx-solution-expected-outcome solution)))))))
+
 (ert-deftest rbx-integration-adhoc-run-round-trip ()
   (skip-unless (file-executable-p rbx-integration-test--program))
   (rbx-integration-test-with-package demo

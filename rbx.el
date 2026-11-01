@@ -52,6 +52,13 @@ Only TeX buffers are affected."
   :type 'boolean
   :group 'rbx)
 
+(defcustom rbx-solution-declared-outcome t
+  "Whether `rbx-mode' shows a solution's declared outcome in the mode line.
+The outcome is what `problem.rbx.yml' says the solution should do, not a
+verdict: it is available before any run."
+  :type 'boolean
+  :group 'rbx)
+
 (defconst rbx--statement-hints-delay 0.3
   "Idle seconds to debounce statement hint recomputation after an edit.")
 
@@ -66,6 +73,9 @@ Only TeX buffers are affected."
 
 (defvar-local rbx--artifact-watcher nil
   "Artifact watcher used to refresh Flymake diagnostics and statement hints.")
+
+(defvar-local rbx--declared-outcome nil
+  "Outcome `problem.rbx.yml' declares for this buffer's file, or nil.")
 
 (defvar-local rbx--statement-hint-overlays nil
   "Overlays showing this buffer's statement variable hints.")
@@ -114,6 +124,39 @@ Only TeX buffers are affected."
             (when (rbx--same-file-p buffer-file-name warning-file)
               (push (rbx--warning-diagnostic warning) diagnostics))))))
     (funcall report-fn (nreverse diagnostics))))
+
+;;;; Declared outcome
+
+(defun rbx--declared-outcome-lighter (outcome)
+  "Return the mode line text for declared OUTCOME, as the run view colours it."
+  ;; Mode lines read `face', not the `font-lock-face' the run view sets, but
+  ;; the face value is the run view's own, so the colours match.
+  (concat " " (propertize (rbx--expectation-label outcome)
+                          'face (rbx--expected-face-value outcome))))
+
+(defconst rbx--misc-info-entry
+  '(rbx--declared-outcome
+    (:eval (rbx--declared-outcome-lighter rbx--declared-outcome)))
+  "Entry added to `mode-line-misc-info' to show the declared outcome.
+It goes there, not into the minor mode lighter, because that is shown by
+the stock mode line and by Doom Modeline's default `misc-info' segment,
+whereas Doom Modeline hides minor modes unless `doom-modeline-minor-modes'
+is set.")
+
+(defun rbx--show-declared-outcome (enable)
+  "Add (when ENABLE) or remove the declared outcome entry in this buffer."
+  (setq-local mode-line-misc-info
+              (let ((rest (delete rbx--misc-info-entry
+                                  (copy-sequence mode-line-misc-info))))
+                (if enable (cons rbx--misc-info-entry rest) rest))))
+
+(defun rbx--refresh-declared-outcome ()
+  "Recompute the declared outcome of this buffer's file from the manifest."
+  (setq rbx--declared-outcome
+        (when-let* ((_ (and rbx-solution-declared-outcome buffer-file-name))
+                    (package (rbx-find-package)))
+          (rbx-declared-outcome package buffer-file-name)))
+  (force-mode-line-update))
 
 ;;;; Statement build diagnostics
 
@@ -306,6 +349,7 @@ reading it, since reading YAML is exactly what needs yq."
                (when (buffer-live-p buffer)
                  (with-current-buffer buffer
                    (when rbx-mode
+                     (rbx--refresh-declared-outcome)
                      (when (or rbx-compilation-diagnostics
                                (memq #'rbx-statement-flymake-backend
                                      flymake-diagnostic-functions))
@@ -324,6 +368,8 @@ most recent run available to Flymake, and with `rbx-statement-diagnostics'
 it does the same for statement build errors in TeX buffers.  When
 `rbx-statement-var-hints' is non-nil and this file is one of the package's
 declared statements, it shows what each `\\VAR{...}' reference resolves to.
+In a solution file, `rbx-solution-declared-outcome' puts the outcome the
+manifest declares for it in the mode line.
 
 Inside a package the mode needs mikefarah/yq; without it the mode stays
 off, warning once when enabled from a hook."
@@ -344,7 +390,10 @@ off, warning once when enabled from a hook."
         (when (and rbx-statement-diagnostics (rbx--statement-tex-buffer-p))
           (add-hook 'flymake-diagnostic-functions
                     #'rbx-statement-flymake-backend nil t))
+        (rbx--show-declared-outcome t)
+        (rbx--refresh-declared-outcome)
         (when (or rbx-compilation-diagnostics rbx-statement-var-hints
+                  rbx-solution-declared-outcome
                   (memq #'rbx-statement-flymake-backend
                         flymake-diagnostic-functions))
           (add-hook 'kill-buffer-hook #'rbx--stop-artifact-watcher nil t)
@@ -361,6 +410,8 @@ off, warning once when enabled from a hook."
                  #'rbx-statement-flymake-backend t)
     (remove-hook 'kill-buffer-hook #'rbx--stop-artifact-watcher t)
     (rbx--stop-artifact-watcher)
+    (setq rbx--declared-outcome nil)
+    (rbx--show-declared-outcome nil)
     (rbx--disable-statement-hints)))
 
 (provide 'rbx)
