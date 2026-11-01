@@ -111,6 +111,80 @@ here."
         (should statements)
         (should (rbx-problem-statement-file (car statements)))))))
 
+(defun rbx-integration-test--replace-in-file (file from to)
+  "Replace the first literal FROM with TO in FILE, or signal an error."
+  (with-temp-file file
+    (insert-file-contents file)
+    (goto-char (point-min))
+    (unless (search-forward from nil t)
+      (error "%S not found in %s" from file))
+    (replace-match to t t)))
+
+(defun rbx-integration-test--make-partially-scored (demo)
+  "Turn the package at DEMO into one scored by points, with a partial solution.
+
+The default preset scores in binary, so it never produces fractional scores
+or a `partially-correct' verdict."
+  (write-region "#include \"testlib.h\"
+int main(int argc, char *argv[]) {
+  registerTestlibCmd(argc, argv);
+  long long a = ans.readLong(), o = ouf.readLong();
+  if (a == o) quitf(_ok, \"ok\");
+  quitp(37.037, \"partial answer\");
+}
+" nil (expand-file-name "partial-checker.cpp" demo))
+  (write-region "#include <iostream>
+int main() {
+  long long a, b;
+  std::cin >> a >> b;
+  std::cout << a + b + 1 << std::endl;
+}
+" nil (expand-file-name "sols/partial.cpp" demo))
+  (let ((manifest (expand-file-name "problem.rbx.yml" demo)))
+    (rbx-integration-test--replace-in-file
+     manifest "checker: {path: wcmp.cpp}"
+     "scoring: points\nchecker: {path: partial-checker.cpp}")
+    (rbx-integration-test--replace-in-file
+     manifest "- name: samples\n"
+     "- name: samples\n  score: 100\n  aggregation: sum\n")
+    (rbx-integration-test--replace-in-file
+     manifest "\nstatements:\n"
+     "\n- path: sols/partial.cpp\n  outcome: partially correct\nstatements:\n")))
+
+(ert-deftest rbx-integration-partial-scoring-renders-like-rbx ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-package demo
+    (rbx-integration-test--make-partially-scored demo)
+    (rbx-integration-test--run demo "run")
+    (let* ((package (rbx-find-package demo))
+           (solutions (rbx-run-report-solutions (rbx-load-report package)))
+           (main (seq-find (lambda (solution)
+                             (equal (rbx-solution-report-path solution)
+                                    "sols/main.cpp"))
+                           solutions))
+           (partial (seq-find (lambda (solution)
+                                (equal (rbx-solution-report-path solution)
+                                       "sols/partial.cpp"))
+                              solutions)))
+      (should (equal (rbx--score (rbx-solution-report-score main)
+                                 (rbx-solution-report-max-score main))
+                     "[100/100]"))
+      (should (equal (rbx--score (rbx-solution-report-score partial)
+                                 (rbx-solution-report-max-score partial))
+                     "[37.04/100]"))
+      (should (equal (rbx-outcome-short-name
+                      (rbx-solution-report-outcome partial))
+                     "PC"))
+      (should (rbx-solution-report-matches-expectation partial))
+      (should (equal (rbx--expectation-label
+                      (rbx-solution-expected-outcome
+                       (seq-find (lambda (solution)
+                                   (equal (rbx-solution-path solution)
+                                          "sols/partial.cpp"))
+                                 (rbx-skeleton-solutions
+                                  (rbx-load-skeleton package)))))
+                     "PC")))))
+
 (defun rbx-integration-test--vars-command-available-p (directory)
   "Return non-nil when the real rbx binary offers a `vars' command.
 

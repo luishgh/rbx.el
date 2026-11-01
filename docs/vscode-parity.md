@@ -4,7 +4,7 @@ What rbx.el decided about each feature of the
 [rbx VS Code extension](https://rbx.rsalesc.dev/tools/vscode/), the product it
 mirrors.
 
-**Reviewed through rbx 2.3.2.** The next review starts from this version.
+**Reviewed through rbx 2.3.4.** The next review starts from this version.
 
 ## How to read and maintain this
 
@@ -31,6 +31,10 @@ mirrors.
 | Declared, actual and match shown as separate channels | `mapped` | Coloured name, verdict and match marker |
 | Gutter tick, red triangle, yellow warning | `mapped` | Left-fringe indicators |
 | Verdict, points, max time and memory per solution and group | `mapped` | Read from `.rbx/runs/report.yml` |
+| Partially correct verdict and expectation | `mapped` | `PC` in yellow, in both channels |
+| Fractional scores | `mapped` | Printed to the cent, as `rbx run` does |
+| Percentage on a partially correct testcase | `proposed` | [#9](https://github.com/luishgh/rbx.el/issues/9) |
+| Score coloured by how much it earned | `proposed` | [#9](https://github.com/luishgh/rbx.el/issues/9) |
 | Progress while running (`12/40`) | `mapped` | Run view row summary |
 | Limits per language and limits profile in the header | `mapped` | Run view header |
 | `limits look untuned` notice | `mapped` | Run view header |
@@ -133,7 +137,7 @@ mirrors.
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
 | `\VAR{...}` hints, filters, group variables, placement rules | `mapped` | `rbx-mode` overlays via `rbx vars` (the allowed exception); `rbx-statement-var-hints` |
-| Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); an entry with no `file` of its own, such as one using `extends`, gets no hints |
+| Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); entries using `extends` with no `file`, or a `{lang}` template in `file`, get no hints |
 | PDF preview reloading on each build | `mapped` | `rbx-preview-statement` (`P`) with auto-revert |
 | Picker across statements, tutorials, variants | `adapted` | `completing-read` over the build report, no in-panel picker |
 | Picker starts on the source being edited | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
