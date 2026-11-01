@@ -51,7 +51,12 @@ allowed to go on to twice TIME before being killed."
 
 (cl-defstruct (rbx-skeleton (:constructor rbx-skeleton-create))
   "The structural artifact written when an rbx run starts."
-  solutions entries groups compilation sanitized only-accepted limits)
+  solutions entries groups compilation sanitized only-accepted limits
+  validation-mode invalid)
+
+(cl-defstruct (rbx-invalid-test (:constructor rbx-invalid-test-create))
+  "A testcase a validator rejected, as listed in skeleton.yml."
+  group index validator message)
 
 (cl-defstruct (rbx-evaluation (:constructor rbx-evaluation-create))
   "Per-testcase facts from an evaluation artifact."
@@ -72,8 +77,10 @@ allowed to go on to twice TIME before being killed."
   time-limit untuned-limits-suspected groups)
 
 (cl-defstruct (rbx-run-report (:constructor rbx-run-report-create))
-  "Aggregate decisions published by rbx for a run."
-  solutions)
+  "Aggregate decisions published by rbx for a run.
+FINISHED is non-nil once rbx marked the run as over, and EXIT-STATUS is
+then \"ok\", \"interrupted\" or \"error\"; both are nil while a run is in flight."
+  solutions finished exit-status)
 
 (cl-defstruct (rbx-testset-group (:constructor rbx-testset-group-create))
   "A group declaration from testset.yml."
@@ -317,10 +324,23 @@ Mirrors rbx's `Limits.get_expanded_tl'."
   (when-let* ((time (and limits (rbx-limits-time limits))))
     (if (rbx-limits-double-tl limits) (* 2 time) time)))
 
+(defun rbx--parse-invalid-test (raw)
+  "Parse RAW as a rejected testcase, or return nil."
+  (let ((group (rbx--model-string raw "group"))
+        (index (rbx--model-number raw "index"))
+        (validator (rbx--model-string raw "validator"))
+        (message (rbx--model-string raw "message")))
+    (when (and group index)
+      (rbx-invalid-test-create
+       :group group :index index :validator validator
+       :message (unless (string-empty-p (or message "")) message)))))
+
 (defun rbx-parse-skeleton (raw)
   "Parse RAW as a SolutionReportSkeleton, or return nil."
   (when (rbx--wire-mapping-p raw)
-    (let (solutions entries groups compilation)
+    (let* ((mode (rbx--model-string raw "validation" "mode"))
+           (mode (and (member mode '("fail" "warn" "off")) mode))
+           solutions entries groups compilation)
       (cl-loop for solution in (rbx--wire-sequence
                                 (rbx--model-field raw "solutions"))
                for index from 0
@@ -351,6 +371,13 @@ Mirrors rbx's `Limits.get_expanded_tl'."
        :entries (nreverse entries)
        :groups (nreverse groups)
        :compilation (nreverse compilation)
+       :validation-mode mode
+       :invalid (when mode
+                  (delq nil
+                        (mapcar #'rbx--parse-invalid-test
+                                (rbx--wire-sequence
+                                 (rbx--model-field raw "validation"
+                                                   "invalid")))))
        :sanitized (rbx--model-boolean raw '("sanitized") nil)
        :only-accepted (rbx--model-boolean raw '("only_accepted") nil)
        :limits (cl-loop
@@ -449,12 +476,19 @@ Unlike structural artifacts, unknown report versions are rejected because
 rendering an incomplete testcase is safe while rendering a wrong aggregate
 verdict is not."
   (when (equal (rbx--model-number raw "version") 1)
-    (rbx-run-report-create
-     :solutions
-     (delq nil
-           (mapcar #'rbx--parse-solution-report
-                   (rbx--wire-sequence
-                    (rbx--model-field raw "solutions")))))))
+    (let ((finished (rbx--model-boolean raw '("finished") nil)))
+      (rbx-run-report-create
+       :finished finished
+       :exit-status (when finished
+                      (let ((status (rbx--model-string raw "exitStatus")))
+                        (if (member status '("ok" "interrupted" "error"))
+                            status
+                          "error")))
+       :solutions
+       (delq nil
+             (mapcar #'rbx--parse-solution-report
+                     (rbx--wire-sequence
+                      (rbx--model-field raw "solutions"))))))))
 
 (defun rbx--parse-testset-group (raw)
   "Parse RAW as a testset group, or return nil."

@@ -624,5 +624,63 @@ PATHS are created under the package first."
                    )))))
     (should-not (rbx-stress-findings stress))))
 
+(ert-deftest rbx-parse-skeleton-reads-validation ()
+  (let* ((skeleton
+          (rbx-parse-skeleton
+           '(("validation"
+              . (("mode" . "warn")
+                 ("invalid"
+                  . ((("group" . "main") ("index" . 2)
+                      ("validator" . "val.cpp") ("message" . "n too big"))
+                     (("group" . "main") ("index" . 3)
+                      ("validator" . "val.cpp"))
+                     (("group" . "main") ("validator" . "bad"))
+                     LATER)))))))
+         (invalid (rbx-skeleton-invalid skeleton)))
+    (should (equal (rbx-skeleton-validation-mode skeleton) "warn"))
+    ;; The malformed entry costs only itself.
+    (should (= (length invalid) 2))
+    (should (equal (rbx-invalid-test-group (car invalid)) "main"))
+    (should (= (rbx-invalid-test-index (car invalid)) 2))
+    (should (equal (rbx-invalid-test-validator (car invalid)) "val.cpp"))
+    (should (equal (rbx-invalid-test-message (car invalid)) "n too big"))
+    (should-not (rbx-invalid-test-message (cadr invalid)))))
+
+(ert-deftest rbx-parse-skeleton-reads-quiet-validation-modes ()
+  (dolist (mode '("off" "fail"))
+    (should (equal (rbx-skeleton-validation-mode
+                    (rbx-parse-skeleton `(("validation" . (("mode" . ,mode))))))
+                   mode))))
+
+(ert-deftest rbx-parse-skeleton-ignores-absent-or-unknown-validation ()
+  (dolist (raw '((("solutions"))
+                 (("validation"
+                   . (("mode" . "sometimes")
+                      ("invalid" . ((("group" . "a") ("index" . 0)
+                                     ("validator" . "v")))))))))
+    (let ((skeleton (rbx-parse-skeleton raw)))
+      (should-not (rbx-skeleton-validation-mode skeleton))
+      (should-not (rbx-skeleton-invalid skeleton)))))
+
+(ert-deftest rbx-parse-report-reads-how-the-run-ended ()
+  (cl-flet ((parse (&rest fields)
+              (rbx-parse-report `(("version" . 1) ,@fields))))
+    (let ((report (parse '("finished" . t) '("exitStatus" . "interrupted"))))
+      (should (rbx-run-report-finished report))
+      (should (equal (rbx-run-report-exit-status report) "interrupted")))
+    (should (equal (rbx-run-report-exit-status
+                    (parse '("finished" . t) '("exitStatus" . "error")))
+                   "error"))
+    ;; Finished without a usable status reads as an error, as upstream does.
+    (should (equal (rbx-run-report-exit-status (parse '("finished" . t)))
+                   "error"))
+    (should (equal (rbx-run-report-exit-status
+                    (parse '("finished" . t) '("exitStatus" . "weird")))
+                   "error"))
+    ;; Without the marker the run is in flight, or from an older rbx.
+    (should-not (rbx-run-report-finished (parse '("exitStatus" . "ok"))))
+    (should-not (rbx-run-report-finished (parse)))
+    (should-not (rbx-run-report-exit-status (parse)))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here

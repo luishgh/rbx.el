@@ -9,6 +9,12 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Run view warnings that a result may be less trustworthy than it looks
+  (#7): testcases a validator rejected under `--on-invalid=warn` are counted
+  in the header, marked `⚠ invalid` and explained on the info card, with a
+  quieter note when the run skipped validation; and a run that was
+  interrupted or exited early says so, shows its unevaluated testcases as
+  `never run`, and stops showing a running progress count.
 - Small VS Code parity gaps (#6): a per-package `rbx-program` through
   `.dir-locals.el`; copy an artifact path (`y`) or reveal it in Dired (`j`);
   copy an interaction as an `.interaction` file (`C`); wall, checker and

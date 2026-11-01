@@ -573,6 +573,23 @@ STATE is one of `rbx--row-state's values."
          entries)
         (length entries)))
 
+(defvar-local rbx--run-invalid nil
+  "The `rbx-invalid-test' list of this run view.
+Set before drawing, as section bodies are inserted lazily.")
+
+(defvar-local rbx--run-ended nil
+  "Non-nil in a run view whose run rbx marked as over.
+Set before drawing, as section bodies are inserted lazily.")
+
+(defun rbx--invalid-for-entry (entry)
+  "Return the validator rejections of ENTRY in the run being drawn."
+  (seq-filter (lambda (invalid)
+                (and (equal (rbx-invalid-test-group invalid)
+                            (rbx-testcase-group entry))
+                     (eql (rbx-invalid-test-index invalid)
+                          (rbx-testcase-index entry))))
+              rbx--run-invalid))
+
 (defun rbx--insert-run-testcase (package solution entry evaluation limits)
   "Insert ENTRY and its EVALUATION for SOLUTION in PACKAGE.
 LIMITS are the `rbx-limits' SOLUTION was judged under."
@@ -581,15 +598,21 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
                        :solution solution
                        :solution-index (rbx-solution-index solution)
                        :testcase entry
-                       :evaluation evaluation)))
+                       :evaluation evaluation
+                       :invalid (rbx--invalid-for-entry entry))))
     (magit-insert-section (rbx-testcase-section context)
       (magit-insert-heading
        (format "    %s  %s%s\n"
                (rbx-testcase-stem entry)
-               (rbx--actual (and evaluation
-                                 (rbx-evaluation-outcome evaluation)))
+               (if (and rbx--run-ended (null evaluation))
+                   (rbx--fontify "never run" 'rbx-outcome-dim)
+                 (rbx--actual (and evaluation
+                                   (rbx-evaluation-outcome evaluation))))
                (let ((meta
-                      (and evaluation
+                      (rbx--meta
+                       (and (plist-get context :invalid)
+                            (rbx--fontify "⚠ invalid" 'rbx-warning))
+                       (and evaluation
                            (rbx--meta
                             (rbx--measured-time
                              (rbx-evaluation-time evaluation)
@@ -600,7 +623,7 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
                              (and limits (rbx-limits-memory limits)))
                             (rbx-evaluation-message evaluation)
                             (and (rbx-evaluation-sanitizer-warnings evaluation)
-                                 "sanitizer")))))
+                                 "sanitizer"))))))
                  (if (string-empty-p (or meta "")) "" (concat "  " meta))))))))
 
 (defun rbx--insert-run-group
@@ -645,7 +668,9 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
             (rbx--row-state
              (rbx-group-report-matches-expectation group-report)
              warning))
-         (format "  … %s  %d/%d\n" group (car progress) (cdr progress))))
+         (if rbx--run-ended
+             (format "  – %s  not finished\n" group)
+           (format "  … %s  %d/%d\n" group (car progress) (cdr progress)))))
       (magit-insert-section-body
         (dolist (entry entries)
           (rbx--insert-run-testcase
@@ -703,7 +728,8 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
                                 "OK")
                        (rbx-solution-report-status solution-report))))
             state)
-         (format "… %s  declared %s  %d/%d\n"
+         (format (if rbx--run-ended "– %s  declared %s  never finished\n"
+                   "… %s  declared %s  %d/%d\n")
                  (rbx--fontify
                   (rbx--solution-label solution
                                        (rbx-skeleton-solutions skeleton))
@@ -768,6 +794,37 @@ That is `group/index' for a testset entry, else the generator call, else
                        " "))
          (t "typed input"))))))
 
+(defun rbx--run-unevaluated-p (package skeleton)
+  "Return non-nil if PACKAGE lacks an evaluation SKELETON declares."
+  (seq-some (lambda (solution)
+              (seq-some (lambda (entry)
+                          (not (rbx--evaluation-available-p
+                                package solution entry)))
+                        (rbx-skeleton-entries skeleton)))
+            (rbx-skeleton-solutions skeleton)))
+
+(defun rbx--insert-run-notices (package skeleton report)
+  "Insert notices about SKELETON validation and how REPORT ended a run of PACKAGE."
+  (let ((invalid (rbx-skeleton-invalid skeleton))
+        (mode (rbx-skeleton-validation-mode skeleton)))
+    (cond
+     (invalid
+      (insert (propertize
+               (format "  %d invalid testcase%s: a validator rejected %s\n"
+                       (length invalid) (if (cdr invalid) "s" "")
+                       (if (cdr invalid) "them" "it"))
+               'face 'rbx-row-warning)))
+     ((equal mode "off")
+      (insert (propertize "  not validated: the run skipped validators\n"
+                          'face 'shadow)))))
+  (when (and report (rbx-run-report-finished report)
+             (rbx--run-unevaluated-p package skeleton))
+    (insert (propertize
+             (if (equal (rbx-run-report-exit-status report) "interrupted")
+                 "  This run was interrupted before every testcase was evaluated\n"
+               "  rbx exited before every testcase of this run was evaluated\n")
+             'face 'rbx-row-warning))))
+
 (defun rbx--insert-run-view (package)
   "Insert PACKAGE's run view at point."
   (rbx--clear-fringe-overlays)
@@ -776,6 +833,8 @@ That is `group/index' for a testset entry, else the generator call, else
             (groups (rbx-skeleton-ordered-groups skeleton))
             (entries-by-group
              (rbx--entries-by-group (rbx-skeleton-entries skeleton))))
+        (setq rbx--run-invalid (rbx-skeleton-invalid skeleton)
+              rbx--run-ended (and report (rbx-run-report-finished report)))
         (magit-insert-section
             (rbx-root-section (list :kind 'root :package package))
           (magit-insert-heading
@@ -791,6 +850,7 @@ That is `group/index' for a testset entry, else the generator call, else
                    (if (rbx-skeleton-sanitized skeleton) " · sanitized" "")))
           (dolist (line (rbx--limit-lines (rbx-skeleton-limits skeleton)))
             (insert (propertize (concat "  " line "\n") 'face 'shadow)))
+          (rbx--insert-run-notices package skeleton report)
           (when (and report
                      (seq-some #'rbx-solution-report-untuned-limits-suspected
                                (rbx-run-report-solutions report)))
@@ -870,7 +930,19 @@ afterwards, or nil when there is none."
                       (format "Origin: %s" (rbx--testcase-provenance entry)))))
     (pcase kind
       ('run-testcase
-       (let ((evaluation (plist-get context :evaluation)))
+       (let ((evaluation (plist-get context :evaluation))
+             (header (append header
+                             (mapcar
+                              (lambda (invalid)
+                                (concat "Invalid: "
+                                        (string-join
+                                         (delq nil
+                                               (list (rbx-invalid-test-validator
+                                                      invalid)
+                                                     (rbx-invalid-test-message
+                                                      invalid)))
+                                         ": ")))
+                              (plist-get context :invalid)))))
          (if (null evaluation)
              (cons (append header (list "No evaluation yet.")) nil)
            (cons (append header

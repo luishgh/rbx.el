@@ -1721,3 +1721,104 @@ Return (CHOSEN . DEFAULT) where DEFAULT is what the prompt offered."
 
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here
+
+(ert-deftest rbx-testcase-info-lines-list-each-validator-rejection ()
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (context (list :kind 'run-testcase :testcase entry :evaluation nil
+                        :invalid (list (rbx-invalid-test-create
+                                        :group "main" :index 0
+                                        :validator "val.cpp"
+                                        :message "n too big")
+                                       (rbx-invalid-test-create
+                                        :group "main" :index 0
+                                        :validator "extra.cpp")))))
+    (let ((lines (car (rbx--testcase-info-lines context))))
+      (should (member "Invalid: val.cpp: n too big" lines))
+      (should (member "Invalid: extra.cpp" lines))))
+  (let* ((entry (rbx-testcase-create :group "main" :index 0))
+         (lines (car (rbx--testcase-info-lines
+                      (list :kind 'run-testcase :testcase entry)))))
+    (should-not (cl-some (lambda (line) (string-match-p "Invalid" line))
+                         lines))))
+
+(defun rbx-test--run-view-text (root skeleton-extra &optional report-extra
+                                     evaluated)
+  "Render ROOT's run view with SKELETON-EXTRA and REPORT-EXTRA YAML appended.
+One solution runs two testcases of `main'; the first has an evaluation when
+EVALUATED (or both when it is `all').  A report is written only when REPORT-EXTRA is non-nil."
+  (rbx-test-write root "problem.rbx.yml" "name: Demo\n")
+  (rbx-test-write
+   root ".rbx/runs/skeleton.yml"
+   (concat
+    "solutions:\n  - path: sols/ac.cpp\n    outcome: ACCEPTED\n"
+    "groups:\n  - name: main\n    score: 100\n"
+    "entries:\n  - group_entry: {group: main, index: 0}\n"
+    "  - group_entry: {group: main, index: 1}\n"
+    skeleton-extra))
+  (dolist (stem (cond ((eq evaluated 'all) '("000" "001"))
+                      (evaluated '("000"))))
+    (rbx-test-write
+     root (format ".rbx/runs/0/main/%s.eval" stem)
+     "result: {outcome: accepted}\nlog: {time: 0.1, memory: 1024}\n"))
+  (when report-extra
+    (rbx-test-write root ".rbx/runs/report.yml"
+                    (concat "version: 1\nsolutions: []\n" report-extra)))
+  (rbx-reset-artifact-cache)
+  (with-temp-buffer
+    (rbx-view-mode)
+    (setq-local rbx--package
+                (rbx-package-create :root (file-name-as-directory root)
+                                    :build-dir "build"))
+    (setq-local rbx--view 'run)
+    (rbx-refresh)
+    (rbx-expand-all)
+    (buffer-substring-no-properties (point-min) (point-max))))
+
+(ert-deftest rbx-run-view-flags-testcases-that-failed-validation ()
+  (rbx-test-with-directory root
+    (let ((text (rbx-test--run-view-text
+                 root
+                 (concat "validation:\n  mode: warn\n  invalid:\n"
+                         "    - {group: main, index: 1, validator: v.cpp}\n"))))
+      (should (string-match-p "1 invalid testcase" text))
+      (should (string-match-p "^    001 .*invalid" text))
+      (should-not (string-match-p "^    000 .*invalid" text))))
+  (rbx-test-with-directory root
+    (let ((text (rbx-test--run-view-text
+                 root "validation:\n  mode: off\n")))
+      (should (string-match-p "not validated" text))
+      (should-not (string-match-p "invalid testcase" text))))
+  (dolist (extra '("validation:\n  mode: fail\n" ""))
+    (rbx-test-with-directory root
+      (let ((text (rbx-test--run-view-text root extra)))
+        (should-not (string-match-p "invalid\\|not validated" text))))))
+
+(ert-deftest rbx-run-view-notices-a-run-that-ended-early ()
+  (rbx-test-with-directory root
+    (let ((text (rbx-test--run-view-text
+                 root "" "finished: true\nexitStatus: interrupted\n" t)))
+      (should (string-match-p "interrupted before every testcase" text))
+      (should (string-match-p "^    001 .*never run" text))
+      (should-not (string-match-p "^    000 .*never run" text))
+      (should-not (string-match-p "1/2" text))))
+  (rbx-test-with-directory root
+    (should (string-match-p
+             "rbx exited before every testcase"
+             (rbx-test--run-view-text
+              root "" "finished: true\nexitStatus: error\n" t))))
+  (rbx-test-with-directory root
+    (should (string-match-p
+             "rbx exited before every testcase"
+             (rbx-test--run-view-text root "" "finished: true\n" t)))))
+
+(ert-deftest rbx-run-view-has-no-early-end-notice-when-all-was-evaluated ()
+  (rbx-test-with-directory root
+    (let ((text (rbx-test--run-view-text
+                 root "" "finished: true\nexitStatus: ok\n" 'all)))
+      (should-not (string-match-p "never run\\|interrupted\\|exited" text)))))
+
+(ert-deftest rbx-run-view-keeps-in-flight-behavior-without-an-end-marker ()
+  (rbx-test-with-directory root
+    (let ((text (rbx-test--run-view-text root "" "exitStatus: ok\n" t)))
+      (should-not (string-match-p "never run\\|interrupted\\|exited" text))
+      (should (string-match-p "1/2" text)))))
