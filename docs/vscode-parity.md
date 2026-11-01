@@ -137,7 +137,7 @@ mirrors.
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
 | `\VAR{...}` hints, filters, group variables, placement rules | `mapped` | `rbx-mode` overlays via `rbx vars` (the allowed exception); `rbx-statement-var-hints` |
-| Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); entries using `extends` with no `file`, or a `{lang}` template in `file`, get no hints |
+| Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); entries using `extends` with no `file` get no hints; a `{lang}` template in `file` is matched against files on disk, as upstream does |
 | PDF preview reloading on each build | `mapped` | `rbx-preview-statement` (`P`) with auto-revert |
 | Picker across statements, tutorials, variants | `adapted` | `completing-read` over the build report, no in-panel picker |
 | Picker starts on the source being edited | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |

@@ -799,15 +799,45 @@ no testcases is omitted."
   (rbx--load-artifact (rbx-problem-manifest-path package)
                       #'rbx-parse-problem-statements))
 
+(defconst rbx--lang-placeholder "{lang}"
+  "The placeholder a statement `file' may use for its language.")
+
+(defun rbx-statement-expand-file (statement language)
+  "Return STATEMENT's file with every `{lang}' replaced by LANGUAGE."
+  (string-replace rbx--lang-placeholder (or language "")
+                  (rbx-problem-statement-file statement)))
+
+(defun rbx--lang-template-regexp (template)
+  "Return a regexp matching package-relative files that fit TEMPLATE.
+Every `{lang}' must stand for the same value, so later ones are
+backreferences to the first."
+  (let ((seen nil)
+        (start 0)
+        (parts nil))
+    (while-let ((pos (string-search rbx--lang-placeholder template start)))
+      (push (regexp-quote (substring template start pos)) parts)
+      (push (if seen "\\1" "\\([^/]+\\)") parts)
+      (setq seen t
+            start (+ pos (length rbx--lang-placeholder))))
+    (push (regexp-quote (substring template start)) parts)
+    (concat "\\`" (apply #'concat (nreverse parts)) "\\'")))
+
+(defun rbx--statement-file-matches-p (package statement file)
+  "Return non-nil when FILE is a source of STATEMENT in PACKAGE.
+A `{lang}' template in the statement's file matches any file on disk
+that fits it, as the VS Code extension does."
+  (let ((template (rbx-problem-statement-file statement)))
+    (if (string-search rbx--lang-placeholder template)
+        (let ((relative (file-relative-name (expand-file-name file)
+                                            (rbx-package-root package))))
+          (string-match-p (rbx--lang-template-regexp template) relative))
+      (rbx--same-file-p (rbx-package-file-path package template) file))))
+
 (defun rbx-package-statement-p (package file)
   "Return non-nil when FILE is one of PACKAGE's declared statement files."
-  (when-let* ((statements (rbx-load-problem-statements package)))
-    (seq-some
-     (lambda (statement)
-       (rbx--same-file-p
-        (rbx-package-file-path package (rbx-problem-statement-file statement))
-        file))
-     statements)))
+  (seq-some (lambda (statement)
+              (rbx--statement-file-matches-p package statement file))
+            (rbx-load-problem-statements package)))
 
 (defun rbx-load-contest (path &optional variant-id)
   "Read the contest manifest at PATH, tagging it with VARIANT-ID."

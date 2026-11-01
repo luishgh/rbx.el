@@ -358,3 +358,16 @@
 
 (provide 'rbx-test)
 ;;; rbx-test.el ends here
+
+(ert-deftest rbx-statement-output-sources-resolve-a-wildcard-language ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (cl-letf (((symbol-function 'rbx-load-problem-statements)
+                 (lambda (_package)
+                   (list (rbx-problem-statement-create
+                          :language "*" :file "statement/s-{lang}.rbx.tex")))))
+        (should (equal (rbx--statement-output-sources
+                        package (rbx-statement-output-create :language "en"))
+                       (list (rbx-package-file-path
+                              package "statement/s-en.rbx.tex"))))))))

@@ -480,6 +480,41 @@
         (should-not (rbx-package-statement-p
                     package (expand-file-name "other.tex" root)))))))
 
+(defun rbx-test--statement-p (file template &rest paths)
+  "Return whether FILE is a statement of a package declaring TEMPLATE.
+PATHS are created under the package first."
+  (rbx-test-with-directory root
+    (rbx-test-write root "problem.rbx.yml" "ignored\n")
+    (dolist (path paths) (rbx-test-write root path "content\n"))
+    (let ((package (rbx-package-create :root (file-name-as-directory root)
+                                       :build-dir "build")))
+      (rbx-reset-artifact-cache)
+      (cl-letf (((symbol-function 'rbx-read-yaml)
+                 (lambda (_path)
+                   `(("statements" . ((("language" . "*")
+                                       ("file" . ,template))))))))
+        (and (rbx-package-statement-p
+              package (expand-file-name file root))
+             t)))))
+
+(ert-deftest rbx-package-statement-p-matches-a-lang-template ()
+  (should (rbx-test--statement-p "statement/statement-en.rbx.tex"
+                                 "statement/statement-{lang}.rbx.tex"
+                                 "statement/statement-en.rbx.tex")))
+
+(ert-deftest rbx-package-statement-p-rejects-unrelated-for-a-lang-template ()
+  (should-not (rbx-test--statement-p "statement/other.tex"
+                                     "statement/statement-{lang}.rbx.tex"
+                                     "statement/other.tex")))
+
+(ert-deftest rbx-package-statement-p-needs-one-lang-value-throughout ()
+  (should (rbx-test--statement-p "en/statement-en.tex" "{lang}/statement-{lang}.tex"))
+  (should-not (rbx-test--statement-p "en/statement-pt.tex"
+                                     "{lang}/statement-{lang}.tex")))
+
+(ert-deftest rbx-package-statement-p-still-matches-a-literal-file ()
+  (should (rbx-test--statement-p "statement/a.tex" "statement/a.tex")))
+
 (ert-deftest rbx-parse-statement-report-reads-outputs-and-findings ()
   (let* ((report (rbx-parse-statement-report
                   '(("version" . 1)

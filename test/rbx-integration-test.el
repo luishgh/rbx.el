@@ -227,6 +227,10 @@ Statement and stress failures are findings rbx publishes, not errors."
       (should (rbx-skeleton-limits skeleton))
       (should (rbx-limits-time (rbx-solution-limits solution)))
       (should (numberp (rbx-solution-report-time-limit report)))
+      ;; The default preset declares `{lang}' templates; they must match.
+      (should (rbx-package-statement-p
+               package (expand-file-name "statement/statement-en.rbx.tex"
+                                         demo)))
       ;; The scaffold declares both a statement and an editorial.
       (should (seq-some (lambda (statement)
                           (string-match-p "editorial"

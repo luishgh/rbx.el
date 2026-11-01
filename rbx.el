@@ -138,13 +138,14 @@ else the declared statements in its language."
       (list (rbx-package-file-path package source))
     (let ((language (rbx-statement-output-language output)))
       (mapcar (lambda (statement)
-                (rbx-package-file-path package
-                                       (rbx-problem-statement-file statement)))
+                (rbx-package-file-path
+                 package (rbx-statement-expand-file statement language)))
               (seq-filter
                (lambda (statement)
-                 (or (null language)
-                     (equal (rbx-problem-statement-language statement)
-                            language)))
+                 (let ((declared (rbx-problem-statement-language statement)))
+                   (or (null language)
+                       (equal declared "*")
+                       (equal declared language))))
                (rbx-load-problem-statements package))))))
 
 (defun rbx-statement-flymake-backend (report-fn &rest _args)
