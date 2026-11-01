@@ -39,9 +39,10 @@ mirrors.
 | Sanitizer warnings | `mapped` | Run view markers and `sanitized` heading |
 | Collapse and expand all | `mapped` | `rbx-collapse-all` (`z M`), `rbx-expand-all` (`z R`) |
 | Solution label setting (`rbx.solutionLabel`) | `mapped` | `rbx-solution-label` |
-| Filter box over the run tree | `gap` | `isearch` finds rows but does not narrow the tree |
-| Testcases-as-tiles layout | `gap` | New in 2.3.2 |
-| Flag testcases that failed validation (`--on-invalid=warn`) | `gap` | Skeleton's `validation` is not read, so these verdicts look trustworthy |
+| Filter box over the run tree | `discarded` | Too complex for the benefit; re-running `rbx` on a subset of solutions covers most of the need |
+| Testcases-as-tiles layout | `discarded` | Magit sections are line-based, so a grid needs its own navigation and context |
+| Flag testcases that failed validation (`--on-invalid=warn`) | `proposed` | [#7](https://github.com/luishgh/rbx.el/issues/7) |
+| Notice when a run was interrupted or ended early | `gap` | How the run ended is in `report.yml`; rbx.el does not read it |
 | Notification when a dispatched run passed invalid tests | `discarded` | Only fires for runs the extension started (D1); the `gap` above covers terminal runs |
 
 ## Contests
@@ -66,9 +67,9 @@ mirrors.
 | Open solution, input, output, answer, stderr | `mapped` | `rbx-open-solution`, `i`, `o`, `a`, `2` |
 | Card: checker message in full, wrapped | `mapped` | `rbx-show-testcase-info` (`m`) |
 | Card: test origin, linking to real files | `mapped` | `m`, then `rbx-visit-testcase-source` (`s`) |
-| Card: wall, checker and interactor times | `gap` | Wall time is parsed but not shown; the other two aren't parsed |
-| Copy interaction as `.interaction` | `gap` | |
-| Copy paths and reveal in the file browser | `gap` | Dired would be the native target |
+| Card: wall, checker and interactor times | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Copy interaction as `.interaction` | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Copy paths and reveal in the file browser | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 
 ## Compilation findings
 
@@ -87,7 +88,7 @@ mirrors.
 | Open input and answer, card names validator and generator | `mapped` | `RET`, `m`, `rbx-open-validator` (`V`) |
 | Constraint coverage | `adapted` | Section in the testset view, not a side panel |
 | Testset stats by group | `adapted` | Section in the testset view, with a proportional bar per group |
-| Filter box over the tests tree | `gap` | Same as the run view filter |
+| Filter box over the tests tree | `discarded` | Same as the run view filter |
 
 ## Visualizations
 
@@ -112,7 +113,7 @@ mirrors.
 | --- | --- | --- |
 | Results of `rbx irun` in the run view layout | `mapped` | `rbx-adhoc-run-view` (`I`) |
 | Toggle between last run and ad-hoc run, following the newest | `adapted` | Two separate views; no automatic switch |
-| Hover shows what the ad-hoc run ran on | `gap` | Recorded in the skeleton's single entry |
+| Hover shows what the ad-hoc run ran on | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 | Start `irun` from a testcase, input or generator call | `discarded` | Starts `rbx` (D1) |
 
 ## Stress testing
@@ -123,8 +124,8 @@ mirrors.
 | Finding row: generator call, verdict per solution | `mapped` | Finding and solution sections |
 | Open input, answer, a solution's output and stderr | `mapped` | `i`, `a`, `o`, `2` |
 | Copy generator call | `mapped` | `rbx-copy-stress-generator` (`w`) |
-| Compare the outputs of two solutions | `gap` | Files are already read per solution |
-| Detect a session left `running` with no live rbx (`stale`) | `gap` | The manifest's `pid` and `host` are parsed but not used |
+| Compare the outputs of two solutions | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Detect a session left `running` with no live rbx (`stale`) | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 | Declared stress list, launcher form, start and stop | `discarded` | Starts or stops `rbx` (D1) |
 
 ## Statements
@@ -135,18 +136,19 @@ mirrors.
 | Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); an entry with no `file` of its own, such as one using `extends`, gets no hints |
 | PDF preview reloading on each build | `mapped` | `rbx-preview-statement` (`P`) with auto-revert |
 | Picker across statements, tutorials, variants | `adapted` | `completing-read` over the build report, no in-panel picker |
-| Picker follows the source being edited | `gap` | |
+| Picker starts on the source being edited | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Picker follows as you switch sources | `discarded` | Needs a window-change hook that would fight user-arranged windows |
 | Build errors on the source line (`rbx.statementDiagnostics`) | `mapped` | Flymake via `rbx-statement-diagnostics` |
-| Banner listing failures, with a link to the full LaTeX log | `gap` | Flymake covers the list; the output's `log` isn't reachable |
+| Banner listing failures, with a link to the full LaTeX log | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
 | Build button and `rbx.statements.buildOnSave` | `discarded` | Starts `rbx` (D1) |
 
 ## Solution and file annotations
 
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
-| Declared outcome while editing a solution (`rbx.solutionCodeLens`, `rbx.solutionStatus`) | `gap` | Reads only the manifest; mode line or header line would suit |
-| Explorer and tab badges (`rbx.decorateExplorer`) | `gap` | Dired would be the native target |
-| Assets view, across problems and by problem | `gap` | Upstream uses `rbx assets --json`, which is outside the D1 exception, so this must read manifests or needs an explicit decision |
+| Declared outcome while editing a solution (`rbx.solutionCodeLens`, `rbx.solutionStatus`) | `proposed` | [#8](https://github.com/luishgh/rbx.el/issues/8) |
+| Explorer and tab badges (`rbx.decorateExplorer`) | `discarded` | The declared outcome in the solution buffer gives most of the value, and tabs have no equivalent |
+| Assets view, across problems and by problem | `discarded` | Needs reimplementing rbx's asset resolution, or a second exception to the no-invoke rule for `rbx assets --json` |
 
 ## Dispatch and installation
 
@@ -162,4 +164,4 @@ mirrors.
 | `PATH` then login-shell lookup | `mapped` | `rbx-resolve-executable` |
 | Manual override (`rbx.executable`) | `mapped` | `rbx-program`, `rbx-yq-program` |
 | Views keep working without `rbx` | `mapped` | Only statement hints need it; `yq` stays required and its absence is reported |
-| Per-folder override | `gap` | Resolution is cached per package root, but `rbx-program` is one global option; a per-project value (`.dir-locals.el`) is untested |
+| Per-folder override | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
