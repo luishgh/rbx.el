@@ -8,6 +8,10 @@
    "emacs-transient"
    "emacs"
    "findutils"
+   ;; Not used by this project.  Fedora's command_not_found_handle calls gettext,
+   ;; so a bash that sources the system startup files here recurses on any
+   ;; missing command, forking until the machine runs out of memory.
+   "gettext"
    ;; For the integration suite: rbx compiles validators with g++.  GCC 16
    ;; cannot build the testlib.h that rbx bundles, so stay on an older one.
    "gcc-toolchain@13"
