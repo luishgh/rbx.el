@@ -1407,6 +1407,62 @@ STEM is the generated testcase basename, defaulting to \"000\"."
                         (rbx-stress-create :state "done" :pid 4242 :host host))
                        "done"))))))
 
+(defun rbx-ui-test--stress-compare-context (root outputs)
+  "Return a stress finding context under ROOT with OUTPUTS on disk.
+OUTPUTS is a list of (INDEX . TEXT) written as finding 3's `<INDEX>.out'."
+  (pcase-dolist (`(,index . ,text) outputs)
+    (rbx-test-write root (format ".rbx/runs/.stress/findings/3/%d.out" index)
+                    text))
+  (list :kind 'stress-finding :finding 3
+        :package (rbx-package-create :root (file-name-as-directory root)
+                                     :build-dir "build")
+        :solution-names '("sols/main.cpp" "sols/brute.cpp" "sols/slow.cpp")))
+
+(ert-deftest rbx-stress-compare-diffs-the-only-two-outputs-without-asking ()
+  (rbx-test-with-directory root
+    (let ((context (rbx-ui-test--stress-compare-context
+                    root '((0 . "1\n") (2 . "2\n"))))
+          buffer)
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _) (error "Should not ask")))
+                ((symbol-function 'pop-to-buffer) #'identity))
+        (setq buffer (rbx-stress-compare)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (rbx-test-wait (lambda () (not (get-buffer-process buffer))))
+            (should (string-match-p "-1\n\\+2" (buffer-string)))
+            (should (string-match-p "main\\.cpp" (buffer-name)))
+            (should (string-match-p "slow\\.cpp" (buffer-name))))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-stress-compare-asks-which-two-of-three ()
+  (rbx-test-with-directory root
+    (let ((context (rbx-ui-test--stress-compare-context
+                    root '((0 . "1\n") (1 . "2\n") (2 . "1\n"))))
+          (answers '("sols/brute.cpp" "sols/slow.cpp"))
+          buffer)
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt choices &rest _)
+                   (let ((answer (pop answers)))
+                     (should (member answer choices))
+                     answer)))
+                ((symbol-function 'pop-to-buffer) #'identity))
+        (setq buffer (rbx-stress-compare)))
+      (unwind-protect
+          (with-current-buffer buffer
+            (should (string-match-p "brute\\.cpp" (buffer-name)))
+            (should (string-match-p "slow\\.cpp" (buffer-name))))
+        (kill-buffer buffer)))))
+
+(ert-deftest rbx-stress-compare-needs-two-outputs ()
+  (rbx-test-with-directory root
+    (let ((context (rbx-ui-test--stress-compare-context root '((1 . "1\n")))))
+      (cl-letf (((symbol-function 'rbx--context) (lambda () context)))
+        (let ((err (should-error (rbx-stress-compare) :type 'user-error)))
+          (should (string-match-p "two" (cadr err))))))))
+
 (ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
   (rbx-test-with-directory root
     (rbx-test-write root "build/statement-en.pdf" "%PDF")

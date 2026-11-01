@@ -128,7 +128,7 @@ mirrors.
 | Finding row: generator call, verdict per solution | `mapped` | Finding and solution sections |
 | Open input, answer, a solution's output and stderr | `mapped` | `i`, `a`, `o`, `2` |
 | Copy generator call | `mapped` | `rbx-copy-stress-generator` (`w`) |
-| Compare the outputs of two solutions | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Compare the outputs of two solutions | `mapped` | `rbx-stress-compare` (`=`) diffs two solutions' outputs on a finding |
 | Detect a session left `running` with no live rbx (`stale`) | `mapped` | The stress view reads `stopped` when the recorded pid is gone on this host |
 | Declared stress list, launcher form, start and stop | `discarded` | Starts or stops `rbx` (D1) |
 

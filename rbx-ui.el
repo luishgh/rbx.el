@@ -1985,6 +1985,46 @@ CHANNEL defaults to the input; interactively, a prefix argument asks."
            '("input" "expected" "output" "stderr" "log" "interaction")
            nil t)))
 
+(defun rbx--read-stress-solution (prompt candidates)
+  "Ask for one of CANDIDATES, an alist of (NAME . PATH), using PROMPT."
+  (assoc (completing-read prompt (mapcar #'car candidates) nil t) candidates))
+
+(defun rbx-stress-compare ()
+  "Diff the outputs of two solutions on the stress finding at point.
+Only solutions that left an output for the finding can be compared.  With
+exactly two there is nothing to ask."
+  (interactive)
+  (let* ((context (rbx--context))
+         (package (plist-get context :package))
+         (finding (plist-get context :finding))
+         (names (plist-get context :solution-names))
+         (candidates
+          (cl-loop for index from 0 below (length names)
+                   for path = (rbx-stress-finding-path
+                               package finding (format "%d.out" index))
+                   when (file-readable-p path)
+                   collect (cons (nth index names) path))))
+    (unless (and finding (memq (plist-get context :kind)
+                               '(stress-finding stress-solution)))
+      (user-error "No stress finding at point"))
+    (when (< (length candidates) 2)
+      (user-error "Fewer than two solutions have an output for this finding"))
+    (let* ((left (if (cddr candidates)
+                     (rbx--read-stress-solution "Compare: " candidates)
+                   (car candidates)))
+           (right (if (cddr candidates)
+                      (rbx--read-stress-solution
+                       (format "Compare %s with: " (car left))
+                       (remq left candidates))
+                    (cadr candidates)))
+           (buffer (diff-no-select
+                    (cdr left) (cdr right) "-u" t
+                    (get-buffer-create
+                     (format "*rbx diff: stress #%d %s vs %s*"
+                             finding (car left) (car right))))))
+      (pop-to-buffer buffer)
+      buffer)))
+
 (defun rbx-view-visit ()
   "Visit or toggle the rbx section at point."
   (interactive)
@@ -2018,6 +2058,7 @@ CHANNEL defaults to the input; interactively, a prefix argument asks."
          (context (list :kind 'stress-solution :package package
                         :finding (rbx-stress-finding-index finding)
                         :solution index
+                        :solution-names (rbx-stress-solutions stress)
                         :generator (rbx-stress-finding-generator finding))))
     (magit-insert-section (rbx-stress-solution-section context)
       (insert
@@ -2040,6 +2081,7 @@ CHANNEL defaults to the input; interactively, a prefix argument asks."
   "Insert FINDING of STRESS, for PACKAGE."
   (let ((context (list :kind 'stress-finding :package package
                        :finding (rbx-stress-finding-index finding)
+                       :solution-names (rbx-stress-solutions stress)
                        :generator (rbx-stress-finding-generator finding))))
     (magit-insert-section (rbx-stress-finding-section context)
       (magit-insert-heading
@@ -2222,6 +2264,7 @@ Flymake shows the located errors; the log has everything else."
      :if-mode rbx-view-mode)
     ("w" "Copy stress generator call" rbx-copy-stress-generator
      :if-mode rbx-view-mode)
+    ("=" "Compare stress solutions" rbx-stress-compare :if-mode rbx-view-mode)
     ("m" "Testcase info" rbx-show-testcase-info :if-mode rbx-view-mode)
     ("C" "Copy interaction as .interaction" rbx-copy-interaction
      :if-mode rbx-view-mode)
