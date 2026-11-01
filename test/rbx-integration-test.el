@@ -237,6 +237,44 @@ Statement and stress failures are findings rbx publishes, not errors."
                                           (rbx-problem-statement-file statement)))
                         statements)))))
 
+(ert-deftest rbx-integration-a-normal-run-reads-as-finished-and-validated ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-package demo
+    (rbx-integration-test--run demo "run")
+    (let* ((package (rbx-find-package demo))
+           (report (rbx-load-report package))
+           (skeleton (rbx-load-skeleton package)))
+      ;; A rename of the end marker would silently turn this into "in flight".
+      (should (rbx-run-report-finished report))
+      (should (equal (rbx-run-report-exit-status report) "ok"))
+      (should (equal (rbx-skeleton-validation-mode skeleton) "fail"))
+      (should-not (rbx-skeleton-invalid skeleton)))))
+
+(ert-deftest rbx-integration-on-invalid-warn-lists-the-rejected-testcase ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-package demo
+    ;; The default validator requires both numbers in [N.min, N.max].
+    (rbx-test-write demo "statement/samples/099.in" "0 5\n")
+    (rbx-integration-test--run demo "run" "--on-invalid=warn")
+    (let* ((package (rbx-find-package demo))
+           (skeleton (rbx-load-skeleton package))
+           (invalid (rbx-skeleton-invalid skeleton)))
+      (should (equal (rbx-skeleton-validation-mode skeleton) "warn"))
+      (should (= (length invalid) 1))
+      (should (equal (rbx-invalid-test-group (car invalid)) "samples"))
+      (should (integerp (rbx-invalid-test-index (car invalid))))
+      (should (stringp (rbx-invalid-test-validator (car invalid))))
+      ;; The run still completed, and the view flags the row.
+      (should (rbx-run-report-finished (rbx-load-report package)))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (setq-local rbx--package package)
+        (setq-local rbx--view 'run)
+        (rbx-refresh)
+        (rbx-expand-all)
+        (should (string-match-p "1 invalid testcase" (buffer-string)))
+        (should (string-match-p "⚠ invalid" (buffer-string)))))))
+
 (ert-deftest rbx-integration-adhoc-run-round-trip ()
   (skip-unless (file-executable-p rbx-integration-test--program))
   (rbx-integration-test-with-package demo
