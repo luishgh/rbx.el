@@ -113,6 +113,11 @@ adjusted by the user remains intact."
   "Face for a solution declared slow."
   :group 'rbx)
 
+(defface rbx-expected-partial
+  '((t :inherit rbx-hue-yellow))
+  "Face for a solution declared partially correct."
+  :group 'rbx)
+
 (defface rbx-expected-error
   '((t :inherit rbx-hue-blue))
   "Face for a solution declared to fail with an error."
@@ -141,6 +146,11 @@ adjusted by the user remains intact."
 (defface rbx-outcome-limit
   '((t :inherit rbx-hue-yellow :weight bold))
   "Face for time, idleness, and memory limit verdicts."
+  :group 'rbx)
+
+(defface rbx-outcome-partial
+  '((t :inherit rbx-hue-yellow :weight bold))
+  "Face for the partially correct verdict."
   :group 'rbx)
 
 (defface rbx-outcome-error
@@ -197,6 +207,7 @@ adjusted by the user remains intact."
 
 (defconst rbx--outcome-short-names
   '(("accepted" . "AC")
+    ("partially-correct" . "PC")
     ("skipped" . "SKIP")
     ("wrong-answer" . "WA")
     ("time-limit-exceeded" . "TLE")
@@ -214,6 +225,7 @@ adjusted by the user remains intact."
     ("ACCEPTED" :label "AC" :face rbx-expected-accepted :bold t)
     ("ACCEPTED_OR_TLE" :label "AC or TLE" :face rbx-expected-accepted)
     ("WRONG_ANSWER" :label "WA" :face rbx-expected-incorrect)
+    ("PARTIALLY_CORRECT" :label "PC" :face rbx-expected-partial)
     ("INCORRECT" :label "INCORRECT" :face rbx-expected-incorrect)
     ("RUNTIME_ERROR" :label "RTE" :face rbx-expected-error)
     ("TIME_LIMIT_EXCEEDED" :label "TLE" :face rbx-expected-slow)
@@ -306,6 +318,7 @@ Non-nil exactly when the current run view is following, per
   (cond
    ((or (null outcome) (equal outcome "skipped")) 'rbx-outcome-dim)
    ((equal outcome "accepted") 'rbx-outcome-accepted)
+   ((equal outcome "partially-correct") 'rbx-outcome-partial)
    ((equal outcome "wrong-answer") 'rbx-outcome-wrong)
    ((member outcome '("time-limit-exceeded" "idleness-limit-exceeded"
                       "memory-limit-exceeded"))
@@ -423,9 +436,13 @@ per-solution limits."
   "Format file size BYTES compactly."
   (rbx-format-memory bytes))
 
+(defun rbx--score-text (score)
+  "Format SCORE as rbx prints it: to the cent, without trailing zeros."
+  (string-trim-right (format "%.2f" score) "\\.?0+"))
+
 (defun rbx--score (score maximum)
   "Format SCORE out of MAXIMUM."
-  (format "[%s/%s]" score maximum))
+  (format "[%s/%s]" (rbx--score-text score) (rbx--score-text maximum)))
 
 (defun rbx--report-for-solution (report solution)
   "Find SOLUTION's aggregate in REPORT."

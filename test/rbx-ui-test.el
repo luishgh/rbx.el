@@ -46,6 +46,23 @@
   (should (eq (rbx--expected-face "future-outcome")
               'rbx-expected-neutral)))
 
+(ert-deftest rbx-partially-correct-has-its-own-label-and-hue ()
+  (should (equal (rbx-outcome-short-name "partially-correct") "PC"))
+  (should (eq (rbx--outcome-face "partially-correct") 'rbx-outcome-partial))
+  (should (equal (rbx--expectation-label "PARTIALLY_CORRECT") "PC"))
+  (should (eq (rbx--expected-face "PARTIALLY_CORRECT") 'rbx-expected-partial)))
+
+(ert-deftest rbx-score-prints-like-rbx-to-the-cent ()
+  ;; rbx 2.3.4 writes every score as a float, so a whole score is `100.0'.
+  (should (equal (rbx--score 100.0 100) "[100/100]"))
+  (should (equal (rbx--score 0.0 100) "[0/100]"))
+  (should (equal (rbx--score 100 100) "[100/100]"))
+  (should (equal (rbx--score 37.04 100) "[37.04/100]"))
+  (should (equal (rbx--score 3.5 7) "[3.5/7]"))
+  (should (equal (rbx--score 74.0625 100) "[74.06/100]"))
+  ;; An exact tie goes to the even cent, as in Python's `round'.
+  (should (equal (rbx--score 0.125 1) "[0.12/1]")))
+
 (ert-deftest rbx-status-washes-rank-misses-above-warnings ()
   (should (eq (rbx--row-state nil t) 'missed))
   (should (eq (rbx--row-state t t) 'warned))

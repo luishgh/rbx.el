@@ -59,6 +59,10 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Scores read as `rbx run` prints them against rbx 2.3.4, which writes them as
+  floats: `[100/100]` and `[37.04/100]` rather than `[100.0/100]`.
+- The `partially-correct` verdict and `PARTIALLY_CORRECT` expectation show as
+  `PC` in yellow, rather than an unknown verdict.
 - Refuse to start without mikefarah/yq instead of recursing: a wrong or
   missing `yq` made executable probes re-enter through timers and process
   sentinels until Lisp nesting was exhausted.  Views now fail with a
