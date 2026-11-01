@@ -9,6 +9,14 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Small VS Code parity gaps (#6): a per-package `rbx-program` through
+  `.dir-locals.el`; copy an artifact path (`y`) or reveal it in Dired (`j`);
+  copy an interaction as an `.interaction` file (`C`); wall, checker and
+  interactor times on the info card; what an ad-hoc run ran on in its
+  heading; the full LaTeX log of a statement build (`L`); stress sessions
+  whose rbx is gone read `stopped`; compare two solutions' stress outputs
+  (`=`); the statement picker starts on the output built from the current
+  buffer.
 - Statement build errors are published through Flymake in the TeX files they
   name (`rbx-statement-diagnostics`), replacing the
   `rbx-show-statement-findings` buffer and its `E` binding.

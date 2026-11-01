@@ -1463,6 +1463,54 @@ OUTPUTS is a list of (INDEX . TEXT) written as finding 3's `<INDEX>.out'."
         (let ((err (should-error (rbx-stress-compare) :type 'user-error)))
           (should (string-match-p "two" (cadr err))))))))
 
+(defun rbx-ui-test--pick-statement (file outputs answer)
+  "Pick among OUTPUTS from a buffer visiting FILE; ANSWER answers any prompt.
+Return (CHOSEN . DEFAULT) where DEFAULT is what the prompt offered."
+  (let ((package (rbx-package-create :root "/p/" :build-dir "build"))
+        default)
+    (cl-letf (((symbol-function 'rbx-load-statement-report)
+               (lambda (_) (rbx-statement-report-create :outputs outputs)))
+              ((symbol-function 'completing-read)
+               (lambda (_prompt _choices _pred _req _init _hist def)
+                 (setq default def)
+                 answer)))
+      (with-temp-buffer
+        (setq buffer-file-name file)
+        (cons (rbx--read-statement-output package) default)))))
+
+(ert-deftest rbx-statement-picker-opens-the-only-output-built-from-the-buffer ()
+  (let* ((en (rbx-statement-output-create :path "b/en.pdf" :language "en"
+                                          :source "statement/en.rbx.tex"))
+         (pt (rbx-statement-output-create :path "b/pt.pdf" :language "pt"
+                                          :source "statement/pt.rbx.tex"))
+         (result (rbx-ui-test--pick-statement "/p/statement/pt.rbx.tex"
+                                              (list en pt) "unused")))
+    (should (eq (car result) pt))
+    (should-not (cdr result))))
+
+(ert-deftest rbx-statement-picker-defaults-to-the-first-of-several-matches ()
+  (let* ((pdf (rbx-statement-output-create :path "b/en.pdf" :format "pdf"
+                                           :source "statement/en.rbx.tex"))
+         (tex (rbx-statement-output-create :path "b/en.tex" :format "tex"
+                                           :source "statement/en.rbx.tex"))
+         (other (rbx-statement-output-create :path "b/pt.pdf" :format "pdf"
+                                             :source "statement/pt.rbx.tex"))
+         (result (rbx-ui-test--pick-statement
+                  "/p/statement/en.rbx.tex" (list other pdf tex)
+                  (rbx--statement-output-label tex))))
+    (should (eq (car result) tex))
+    (should (equal (cdr result) (rbx--statement-output-label pdf)))))
+
+(ert-deftest rbx-statement-picker-has-no-default-for-an-unrelated-buffer ()
+  (let* ((en (rbx-statement-output-create :path "b/en.pdf" :language "en"
+                                          :source "statement/en.rbx.tex"))
+         (pt (rbx-statement-output-create :path "b/pt.pdf" :language "pt"
+                                          :source "statement/pt.rbx.tex"))
+         (result (rbx-ui-test--pick-statement "/p/sols/main.cpp" (list en pt)
+                                              (rbx--statement-output-label pt))))
+    (should (eq (car result) pt))
+    (should-not (cdr result))))
+
 (ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
   (rbx-test-with-directory root
     (rbx-test-write root "build/statement-en.pdf" "%PDF")

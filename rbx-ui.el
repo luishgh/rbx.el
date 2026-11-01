@@ -2182,18 +2182,36 @@ PACKAGE's root."
                            ", failed" ""))))
    " "))
 
+(declare-function rbx--statement-output-sources "rbx" (package output))
+
 (defun rbx--read-statement-output (package)
-  "Ask which of PACKAGE's reported statement outputs to use."
+  "Ask which of PACKAGE's reported statement outputs to use.
+When the current buffer is the source of exactly one output, use that one
+without asking; when it is the source of several, offer the first as the
+default."
   (let* ((report (or (rbx-load-statement-report package)
                      (user-error "No statement build report; build the statement first")))
          (outputs (rbx-statement-report-outputs report))
          (choices (mapcar (lambda (output)
                             (cons (rbx--statement-output-label output) output))
-                          outputs)))
+                          outputs))
+         (matching (and buffer-file-name
+                        (seq-filter
+                         (lambda (choice)
+                           (seq-some
+                            (lambda (source)
+                              (rbx--same-file-p buffer-file-name source))
+                            (rbx--statement-output-sources
+                             package (cdr choice))))
+                         choices))))
     (pcase choices
       ('() (user-error "The statement build report has no outputs"))
       (`(,only) (cdr only))
-      (_ (cdr (assoc (completing-read "Statement: " choices nil t) choices))))))
+      (_ (if (and matching (null (cdr matching)))
+             (cdar matching)
+           (cdr (assoc (completing-read "Statement: " choices nil t nil nil
+                                        (caar matching))
+                       choices)))))))
 
 (defun rbx--view-or-selected-package ()
   "Return the package of the current rbx view, or select one."

@@ -167,6 +167,8 @@ pane contains an output-versus-answer diff; for built tests it contains the
 expected answer. The Transient can switch the second pane between output,
 stderr, the run log, and, for interactive problems, the interaction
 transcript, interactor stderr/log, and checker stderr (`4`-`7`). The choice stays active while you inspect other tests.
+`y` copies the input's path (a prefix argument picks another artifact), `j`
+reveals it in Dired, and `C` copies an interaction as an `.interaction` file.
 `m` opens a dedicated info card with the testcase's origin and the full,
 wrapped checker or validator message; `s` jumps to the generator script line
 or copied-from source behind it; `V` opens a testset testcase's validator

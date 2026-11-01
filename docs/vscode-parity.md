@@ -140,7 +140,7 @@ mirrors.
 | Statement source list resolved by `rbx statements ls` | `adapted` | Reads the manifest instead (D1); entries using `extends` with no `file` get no hints; a `{lang}` template in `file` is matched against files on disk, as upstream does |
 | PDF preview reloading on each build | `mapped` | `rbx-preview-statement` (`P`) with auto-revert |
 | Picker across statements, tutorials, variants | `adapted` | `completing-read` over the build report, no in-panel picker |
-| Picker starts on the source being edited | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Picker starts on the source being edited | `mapped` | `rbx-preview-statement` and `rbx-statement-open-log` skip the prompt for the one output built from the current buffer, or default to the first |
 | Picker follows as you switch sources | `discarded` | Needs a window-change hook that would fight user-arranged windows |
 | Build errors on the source line (`rbx.statementDiagnostics`) | `mapped` | Flymake via `rbx-statement-diagnostics` |
 | Banner listing failures, with a link to the full LaTeX log | `adapted` | Flymake lists the located failures; `rbx-statement-open-log` (`L`) opens the full LaTeX log |
