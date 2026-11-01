@@ -441,9 +441,27 @@ per-solution limits."
   "Format SCORE as rbx prints it: to the cent, without trailing zeros."
   (string-trim-right (format "%.2f" score) "\\.?0+"))
 
+(defun rbx--score-face (score maximum)
+  "Return the hue face for SCORE out of MAXIMUM, as `rbx run' colours it.
+Full scores are green, zero is red and anything between is yellow.  A
+binary-scored package reports 0/0, which counts as full, as upstream does."
+  (cond ((>= score maximum) 'rbx-hue-green)
+        ((<= score 0) 'rbx-hue-red)
+        (t 'rbx-hue-yellow)))
+
 (defun rbx--score (score maximum)
-  "Format SCORE out of MAXIMUM."
-  (format "[%s/%s]" (rbx--score-text score) (rbx--score-text maximum)))
+  "Format SCORE out of MAXIMUM, coloured by how much it earned."
+  (rbx--fontify
+   (format "[%s/%s]" (rbx--score-text score) (rbx--score-text maximum))
+   (rbx--score-face score maximum)))
+
+(defun rbx--evaluation-percent (evaluation)
+  "Return EVALUATION's share of the points, or nil.
+Only a partially correct testcase with a recorded score has one."
+  (when-let* (((equal (rbx-evaluation-outcome evaluation) "partially-correct"))
+              (score (rbx-evaluation-score evaluation)))
+    (rbx--fontify (concat (rbx--score-text (* 100 score)) "%")
+                  (rbx--score-face score 1))))
 
 (defun rbx--report-for-solution (report solution)
   "Find SOLUTION's aggregate in REPORT."
@@ -614,6 +632,7 @@ LIMITS are the `rbx-limits' SOLUTION was judged under."
                             (rbx--fontify "⚠ invalid" 'rbx-warning))
                        (and evaluation
                            (rbx--meta
+                            (rbx--evaluation-percent evaluation)
                             (rbx--measured-time
                              (rbx-evaluation-time evaluation)
                              (rbx-evaluation-outcome evaluation)
@@ -950,6 +969,7 @@ afterwards, or nil when there is none."
                                      (rbx-outcome-short-name
                                       (rbx-evaluation-outcome evaluation)))
                              (rbx--meta
+                              (rbx--evaluation-percent evaluation)
                               (rbx-format-time (rbx-evaluation-time evaluation))
                               (rbx-format-memory
                                (rbx-evaluation-memory evaluation))

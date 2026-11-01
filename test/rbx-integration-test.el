@@ -176,6 +176,21 @@ int main() {
                       (rbx-solution-report-outcome partial))
                      "PC"))
       (should (rbx-solution-report-matches-expectation partial))
+      (let ((percents
+             (delq nil
+                   (mapcar
+                    (lambda (entry)
+                      (when-let* ((evaluation
+                                   (rbx-load-evaluation
+                                    package (rbx-solution-report-index partial)
+                                    entry))
+                                  (percent (rbx--evaluation-percent
+                                            evaluation)))
+                        (substring-no-properties percent)))
+                    (rbx-skeleton-entries (rbx-load-skeleton package))))))
+        (should percents)
+        (should (cl-every (lambda (text) (string-suffix-p "%" text))
+                          percents)))
       (should (equal (rbx--expectation-label
                       (rbx-solution-expected-outcome
                        (seq-find (lambda (solution)

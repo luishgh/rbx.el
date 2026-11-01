@@ -9,6 +9,9 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A partially correct testcase shows its share of the points, such as
+  `74.06%`, on its run view row and info card (#9), and scores are coloured
+  green when full, yellow when partial and red at zero, as `rbx run` does.
 - The outcome `problem.rbx.yml` declares for a solution is shown in the mode
   line while you edit it (#8), before any run exists
   (`rbx-solution-declared-outcome`).  Aliases such as `ac/tle` and glob
