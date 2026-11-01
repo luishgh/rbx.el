@@ -129,7 +129,7 @@ mirrors.
 | Open input, answer, a solution's output and stderr | `mapped` | `i`, `a`, `o`, `2` |
 | Copy generator call | `mapped` | `rbx-copy-stress-generator` (`w`) |
 | Compare the outputs of two solutions | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
-| Detect a session left `running` with no live rbx (`stale`) | `proposed` | [#6](https://github.com/luishgh/rbx.el/issues/6) |
+| Detect a session left `running` with no live rbx (`stale`) | `mapped` | The stress view reads `stopped` when the recorded pid is gone on this host |
 | Declared stress list, launcher form, start and stop | `discarded` | Starts or stops `rbx` (D1) |
 
 ## Statements

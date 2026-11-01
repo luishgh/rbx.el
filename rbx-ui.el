@@ -2077,7 +2077,7 @@ CHANNEL defaults to the input; interactively, a prefix argument asks."
                                  (rbx--stress-detail
                                   "state"
                                   (format "%s · %s executed, %s skipped · %.1f s"
-                                          (rbx-stress-state stress)
+                                          (rbx-stress-effective-state stress)
                                           (or (rbx-stress-executed stress) 0)
                                           (or (rbx-stress-skipped stress) 0)
                                           (or (rbx-stress-elapsed stress) 0)))
@@ -2098,6 +2098,24 @@ CHANNEL defaults to the input; interactively, a prefix argument asks."
                           (insert (propertize
                                    "No stress session yet.  Run `rbx stress' in your terminal.\n"
                                    'face 'shadow)))))
+
+(defun rbx--process-alive-p (pid)
+  "Return non-nil when a process with PID exists on this machine."
+  (eql 0 (signal-process pid 0)))
+
+(defun rbx-stress-effective-state (stress)
+  "Return the state of STRESS to show, noticing a session whose rbx is gone.
+A session marked `running' that was started on this host by a process that
+no longer exists reads \"stopped\".  On another host, or with no recorded
+pid, there is no way to tell, so the recorded state stands."
+  (let ((state (rbx-stress-state stress))
+        (pid (rbx-stress-pid stress))
+        (host (rbx-stress-host stress)))
+    (if (and (equal state "running") pid host
+             (string-equal-ignore-case host (system-name))
+             (not (rbx--process-alive-p pid)))
+        "stopped"
+      state)))
 
 ;;;; Statement build report
 

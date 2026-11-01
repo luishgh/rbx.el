@@ -1389,6 +1389,24 @@ STEM is the generated testcase basename, defaulting to \"000\"."
                                    :type 'user-error)))
             (should (string-match-p "log" (cadr err)))))))))
 
+(ert-deftest rbx-stress-effective-state-detects-a-session-whose-rbx-is-gone ()
+  (let ((host (system-name)))
+    (cl-flet ((state (&rest args)
+                (rbx-stress-effective-state
+                 (apply #'rbx-stress-create :state "running" args))))
+      ;; A live pid on this machine stays running.
+      (should (equal (state :pid (emacs-pid) :host host) "running"))
+      ;; A dead one is stopped.
+      (cl-letf (((symbol-function 'rbx--process-alive-p) (lambda (_) nil)))
+        (should (equal (state :pid 4242 :host host) "stopped"))
+        ;; We cannot probe another machine's pids, or a missing pid.
+        (should (equal (state :pid 4242 :host "elsewhere.example") "running"))
+        (should (equal (state :host host) "running"))
+        ;; Only a running session can be stale.
+        (should (equal (rbx-stress-effective-state
+                        (rbx-stress-create :state "done" :pid 4242 :host host))
+                       "done"))))))
+
 (ert-deftest rbx-statement-output-file-needs-a-built-pdf ()
   (rbx-test-with-directory root
     (rbx-test-write root "build/statement-en.pdf" "%PDF")
