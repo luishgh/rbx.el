@@ -4,7 +4,7 @@ What rbx.el decided about each feature of the
 [rbx VS Code extension](https://rbx.rsalesc.dev/tools/vscode/), the product it
 mirrors.
 
-**Reviewed through rbx 2.3.4.** The next review starts from this version.
+**Reviewed through rbx 2.5.1.** The next review starts from this version.
 
 ## How to read and maintain this
 
