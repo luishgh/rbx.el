@@ -81,6 +81,10 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A program that exits right away, such as a quick `--version` probe, could be
+  reported as having failed to start, losing its output and exit code.  Its
+  stderr could also pick up a stray `Process rbx-process stderr finished`
+  line.
 - Scores read as `rbx run` prints them against rbx 2.3.4, which writes them as
   floats: `[100/100]` and `[37.04/100]` rather than `[100.0/100]`.
 - The `partially-correct` verdict and `PARTIALLY_CORRECT` expectation show as

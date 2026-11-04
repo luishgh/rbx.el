@@ -355,6 +355,61 @@ first; removed watches are dropped from it."
       (should (equal (nth 1 result) "err\n"))
       (should (= (nth 2 result) 3)))))
 
+(ert-deftest rbx-run-process-stderr-holds-only-what-the-program-wrote ()
+  :tags '(needs-shell)
+  ;; Closing stderr early makes its pipe finish before the process does, the
+  ;; order in which Emacs's default sentinel would report on it in the buffer.
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable
+                    root "fake" "echo err >&2; exec 2>&-; sleep 0.2; exit 3\n"))
+          result)
+      (rbx-run-process root program nil nil
+                       (lambda (stdout stderr exit-code)
+                         (setq result (list stdout stderr exit-code))))
+      (should (rbx-test-wait (lambda () result)))
+      (should (equal result '("" "err\n" 3))))))
+
+(ert-deftest rbx-run-process-leaves-no-process-behind ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable root "fake" "exit 0\n"))
+          (slow (rbx-test-write-executable root "slow" "sleep 5\n"))
+          (before (process-list))
+          results)
+      (dolist (run `((,program nil) (,slow 0.1)
+                     (,(expand-file-name "missing" root) nil)))
+        (rbx-run-process root (car run) nil nil
+                         (lambda (&rest args) (push args results))
+                         (cadr run)))
+      (should (rbx-test-wait (lambda () (= (length results) 3))))
+      (should (equal (process-list) before)))))
+
+;; A program that exits at once can beat its stdin being closed, and sending to
+;; it then signals.  Stubbing the send makes that ordering certain.
+(ert-deftest rbx-run-process-reports-the-exit-of-a-program-gone-before-stdin ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable
+                    root "fake" "echo out; echo err >&2; exit 3\n"))
+          result)
+      (cl-letf (((symbol-function 'process-send-eof)
+                 (lambda (&rest _) (error "Process not running"))))
+        (rbx-run-process root program nil nil
+                         (lambda (stdout stderr exit-code)
+                           (setq result (list stdout stderr exit-code))))
+        (should (rbx-test-wait (lambda () result))))
+      (should (equal result '("out\n" "err\n" 3))))))
+
+(ert-deftest rbx-run-process-sync-reports-the-exit-of-a-program-gone-before-stdin ()
+  :tags '(needs-shell)
+  (rbx-test-with-directory root
+    (let ((program (rbx-test-write-executable
+                    root "fake" "echo out; echo err >&2; exit 3\n")))
+      (cl-letf (((symbol-function 'process-send-eof)
+                 (lambda (&rest _) (error "Process not running"))))
+        (should (equal (rbx--run-process-sync root program nil nil)
+                       '("out\n" "err\n" 3)))))))
+
 (ert-deftest rbx-run-process-writes-stdin ()
   :tags '(needs-shell)
   (rbx-test-with-directory root
@@ -423,7 +478,7 @@ first; removed watches are dropped from it."
                  (rbx--run-process-sync
                   root (expand-file-name "does-not-exist" root) nil nil)))
       (should (equal stdout ""))
-      (should-not (eql exit-code 0)))))
+      (should-not exit-code))))
 
 (ert-deftest rbx-run-process-sync-captures-stderr-and-stdin ()
   :tags '(needs-shell)

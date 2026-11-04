@@ -87,6 +87,22 @@ run artifacts instead of `.rbx/runs' itself, as for `rbx irun'."
   (interactive)
   (clrhash rbx--build-directory-cache))
 
+(defun rbx--check-startable (program)
+  "Signal an error if PROGRAM, when an absolute file name, cannot be executed.
+`make-process' only signals for a program it has to search for.  Given a path
+it starts a child that exits 127, which looks like the program's own failure."
+  (when (and (file-name-absolute-p program)
+             (not (file-executable-p program)))
+    (error "Cannot execute %s" program)))
+
+(defun rbx--send-input (process input)
+  "Write INPUT, if non-nil, to PROCESS's stdin and close it.
+A program may exit without waiting for its stdin, and sending to it then
+signals an error.  That is no failure: its exit status still gets reported."
+  (ignore-errors
+    (when input (process-send-string process input))
+    (process-send-eof process)))
+
 (defun rbx-run-process (root program args input callback &optional timeout)
   "Run PROGRAM with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
 
@@ -96,7 +112,7 @@ started or timed out after TIMEOUT seconds (default 10)."
   (let* ((stdout-buffer (generate-new-buffer " *rbx-process-stdout*"))
          (stderr-buffer (generate-new-buffer " *rbx-process-stderr*"))
          (done nil)
-         timer process)
+         timer process stderr)
     (cl-labels
         ((finish (exit-code)
            (unless done
@@ -104,6 +120,7 @@ started or timed out after TIMEOUT seconds (default 10)."
              (when timer (cancel-timer timer))
              (when (and process (process-live-p process))
                (delete-process process))
+             (when stderr (delete-process stderr))
              (let ((stdout (with-current-buffer stdout-buffer (buffer-string)))
                    (stderr (with-current-buffer stderr-buffer (buffer-string))))
                (kill-buffer stdout-buffer)
@@ -111,12 +128,20 @@ started or timed out after TIMEOUT seconds (default 10)."
                (funcall callback stdout stderr exit-code)))))
       (condition-case nil
           (progn
+            (rbx--check-startable program)
             (setq process
                   (let ((default-directory (file-name-as-directory root)))
+                    ;; An explicit pipe, because the one `make-process' creates
+                    ;; for a :stderr buffer has the default sentinel, which
+                    ;; reports its own end in that buffer.
+                    (setq stderr (make-pipe-process :name "rbx-process-stderr"
+                                                    :buffer stderr-buffer
+                                                    :noquery t
+                                                    :sentinel #'ignore))
                     (make-process
                      :name "rbx-process"
                      :buffer stdout-buffer
-                     :stderr stderr-buffer
+                     :stderr stderr
                      :command (cons program args)
                      :noquery t
                      :sentinel
@@ -125,8 +150,7 @@ started or timed out after TIMEOUT seconds (default 10)."
                          (finish (process-exit-status proc)))))))
             (setq timer (run-at-time (or timeout 10) nil
                                       (lambda () (finish nil))))
-            (when input (process-send-string process input))
-            (process-send-eof process))
+            (rbx--send-input process input))
         (error (finish nil))))))
 
 (defun rbx--run-process-sync (root program args input &optional timeout)
@@ -146,6 +170,7 @@ refresh reading YAML would start a nested executable resolution)."
         (progn
           (condition-case nil
               (let ((default-directory (file-name-as-directory root)))
+                (rbx--check-startable program)
                 (setq stderr (make-pipe-process :name "rbx-sync-stderr"
                                                 :buffer stderr-buffer
                                                 :noquery t
@@ -157,8 +182,7 @@ refresh reading YAML would start a nested executable resolution)."
                                :command (cons program args)
                                :noquery t
                                :sentinel #'ignore))
-                (when input (process-send-string process input))
-                (process-send-eof process)
+                (rbx--send-input process input)
                 ;; An integer JUST-THIS-ONE also keeps timers from running.
                 (while (and (process-live-p process)
                             (< (float-time) deadline))
