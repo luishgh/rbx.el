@@ -47,7 +47,7 @@ mirrors.
 | Testcases-as-tiles layout | `discarded` | Magit sections are line-based, so a grid needs its own navigation and context |
 | Flag testcases that failed validation (`--on-invalid=warn`) | `mapped` | Run view header count, `⚠ invalid` on rows, validator and message on the info card |
 | Notice when a run was interrupted or ended early | `mapped` | Run view header notice; unevaluated testcases read `never run` |
-| Notification when a dispatched run passed invalid tests | `discarded` | Only fires for runs the extension started (D1); the `gap` above covers terminal runs |
+| Notification when a dispatched run passed invalid tests | `discarded` | Only fires for runs the extension started (D1); the `--on-invalid=warn` row above covers terminal runs |
 
 ## Contests
 
