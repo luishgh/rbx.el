@@ -4,7 +4,7 @@ What rbx.el decided about each feature of the
 [rbx VS Code extension](https://rbx.rsalesc.dev/tools/vscode/), the product it
 mirrors.
 
-**Reviewed through rbx 2.5.1.** The next review starts from this version.
+**Reviewed through rbx 2.6.4.** The next review starts from this version.
 
 ## How to read and maintain this
 
@@ -146,13 +146,24 @@ mirrors.
 | Banner listing failures, with a link to the full LaTeX log | `adapted` | Flymake lists the located failures; `rbx-statement-open-log` (`L`) opens the full LaTeX log |
 | Build button and `rbx.statements.buildOnSave` | `discarded` | Starts `rbx` (D1) |
 
+## Time profiles
+
+| Extension feature | Status | rbx.el |
+| --- | --- | --- |
+| Time profile page for `.limits/<name>.yml`: groups, measured solutions, `--run-all` verdicts, profile tabs | `proposed` | Read-only, from the profile file alone ([#12](https://github.com/luishgh/rbx.el/issues/12)) |
+| Statuses at the limit (`thin headroom`, `would get TLE`, ...) and the last-run fallback | `discarded` | Computed by `rbx time-inspect` (D1); not reimplemented, like verdict aggregation |
+| Change a limit on the page (drag, `−`/`+`, revert, inherit checkbox) | `discarded` | Its checks need `rbx time-inspect` (D1); edit the profile as YAML |
+| Stale-estimate banner and **Re-estimate** button | `discarded` | Staleness is rbx's own checksum, and the button starts `rbx time` (D1) |
+| `local` time limit in the status bar | `mapped` | Run view header shows the limits and profile |
+| CodeLens over `timeLimit:`, one per profile | `discarded` | Only an entry point; the proposed view picks profiles with `completing-read` |
+
 ## Solution and file annotations
 
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
 | Declared outcome while editing a solution (`rbx.solutionCodeLens`, `rbx.solutionStatus`) | `adapted` | Mode line of a solution buffer under `rbx-mode` (`rbx-solution-declared-outcome`), read from `problem.rbx.yml`; no separate status item |
 | Explorer and tab badges (`rbx.decorateExplorer`) | `discarded` | The declared outcome in the solution buffer gives most of the value, and tabs have no equivalent |
-| Assets view, across problems and by problem | `discarded` | Needs reimplementing rbx's asset resolution, or a second exception to the no-invoke rule for `rbx assets --json` |
+| Assets view, across problems and by problem | `discarded` | Needs reimplementing rbx's asset resolution, or a second exception to the no-invoke rule for `rbx assets --json`; its 2.6.0 Time profiles folder goes with it |
 
 ## Dispatch and installation
 
