@@ -150,7 +150,7 @@ mirrors.
 
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
-| Time profile page for `.limits/<name>.yml`: groups, measured solutions, `--run-all` verdicts, profile tabs | `proposed` | Read-only, from the profile file alone ([#12](https://github.com/luishgh/rbx.el/issues/12)) |
+| Time profile page for `.limits/<name>.yml`: groups, measured solutions, `--run-all` verdicts, profile tabs | `adapted` | `rbx-time-profile-view` (`T`), read-only and from the profile file alone; profiles are chosen with `completing-read` rather than tabs, and a visited `.limits/*.yml` opens directly ([#12](https://github.com/luishgh/rbx.el/issues/12)) |
 | Statuses at the limit (`thin headroom`, `would get TLE`, ...) and the last-run fallback | `discarded` | Computed by `rbx time-inspect` (D1); not reimplemented, like verdict aggregation |
 | Change a limit on the page (drag, `−`/`+`, revert, inherit checkbox) | `discarded` | Its checks need `rbx time-inspect` (D1); edit the profile as YAML |
 | Stale-estimate banner and **Re-estimate** button | `discarded` | Staleness is rbx's own checksum, and the button starts `rbx time` (D1) |

@@ -9,6 +9,13 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A time profile view (#12), `rbx-time-profile-view` (`T`), reads a limits
+  profile, `.limits/<name>.yml`, as `rbx time` wrote it: each language
+  group's limit and how it was reached, hand edits beside the estimate,
+  the solutions the estimate measured and what checking the slow ones
+  found, and the verdicts `rbx time --run-all` recorded at the limit, with
+  any judged at an older limit flagged.  It refreshes when the profile
+  changes.
 - A partially correct testcase shows its share of the points, such as
   `74.06%`, on its run view row and info card (#9), and scores are coloured
   green when full, yellow when partial and red at zero, as `rbx run` does.

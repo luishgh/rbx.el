@@ -1744,8 +1744,6 @@ Return (CHOSEN . DEFAULT) where DEFAULT is what the prompt offered."
     (should-not (rbx--evaluation-percent full))
     (should-not (rbx--evaluation-percent bare))))
 
-(provide 'rbx-ui-test)
-;;; rbx-ui-test.el ends here
 
 (ert-deftest rbx-testcase-info-lines-list-each-validator-rejection ()
   (let* ((entry (rbx-testcase-create :group "main" :index 0))
@@ -1847,3 +1845,209 @@ EVALUATED (or both when it is `all').  A report is written only when REPORT-EXTR
     (let ((text (rbx-test--run-view-text root "" "exitStatus: ok\n" t)))
       (should-not (string-match-p "never run\\|interrupted\\|exited" text))
       (should (string-match-p "1/2" text)))))
+
+;;;; Time profiles
+
+(defconst rbx-ui-test--time-profile
+  (concat
+   "timeLimit: 100\nmemoryLimit: 256\n"
+   "multipliers: {acToTimeLimit: 2.0, timeLimitToTle: 1.5, timeResolution: 100}\n"
+   "groups:\n"
+   "- languages: [py]\n  timeLimit: 400\n  origin: multiplier\n"
+   "  relativeToLanguage: cpp\n  multiplier: 3.0\n  increment: 50\n"
+   "  estimatedTimeLimit: 300\n"
+   "  lowerViolation: {value: 500, solution: sols/slow.py}\n"
+   "- languages: [cpp, c]\n  timeLimit: 100\n  origin: estimated\n"
+   "  isLeftover: true\n"
+   "  lowerBound: {value: 10, solution: sols/main.cpp}\n"
+   "  upperValidation:\n    confirmed: [sols/tle-slow.cpp]\n"
+   "    violating: [{value: 90, solution: sols/tle-fast.cpp}]\n"
+   "    skipped: [sols/tle-never.cpp]\n"
+   "baseEstimate: {languages: [], timeLimit: 100, origin: estimated}\n"
+   "runner: local\n"
+   "solutions:\n"
+   "- {path: sols/main.cpp, language: cpp, role: lower, time: 5}\n"
+   "- {path: sols/tle-slow.cpp, language: cpp, role: upper, survivedAt: 150}\n"
+   "- {path: sols/tle-fast.cpp, language: cpp, role: upper, time: 90}\n"
+   "- {path: sols/slow.py, language: py, role: lower, time: 250}\n"
+   "runs:\n"
+   "- {path: sols/wa-off.cpp, language: cpp, timeLimit: 100, "
+   "expectedOutcome: WRONG_ANSWER, outcome: wrong-answer, "
+   "matchesExpectation: true, time: 7}\n"
+   "- {path: sols/re.py, language: py, timeLimit: 300, "
+   "expectedOutcome: RUNTIME_ERROR, outcome: accepted, "
+   "matchesExpectation: false, time: 20, complete: false}\n")
+  "A limits profile with every part the time profile view draws.")
+
+(defun rbx-ui-test--time-profile-package (root)
+  "Write the fixture profile and a manifest under ROOT; return its package."
+  (rbx-test-write root "problem.rbx.yml"
+                  (concat "solutions:\n"
+                          "- {path: sols/main.cpp, outcome: ACCEPTED}\n"
+                          "- {path: sols/tle-*.cpp, outcome: TLE}\n"))
+  (rbx-test-write root ".limits/local.yml" rbx-ui-test--time-profile)
+  (rbx-reset-artifact-cache)
+  (rbx-package-create :root (file-name-as-directory root) :build-dir "build"))
+
+(defmacro rbx-ui-test--with-time-profile-view (name &rest body)
+  "Render the time profile NAME of the fixture package, then run BODY."
+  (declare (indent 1))
+  `(rbx-test-with-directory root
+     (let ((package (rbx-ui-test--time-profile-package root)))
+       (with-temp-buffer
+         (rbx-view-mode)
+         (let ((inhibit-read-only t))
+           (rbx--insert-time-profile-view package ,name))
+         (goto-char (point-min))
+         ,@body))))
+
+(defun rbx-ui-test--line-matching (regexp)
+  "Return the text of the first line matching REGEXP, or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward regexp nil t)
+      (buffer-substring-no-properties (line-beginning-position)
+                                      (line-end-position)))))
+
+(ert-deftest rbx-time-profile-view-renders-the-header ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (should (rbx-ui-test--line-matching "^Time profile local"))
+    (should (rbx-ui-test--line-matching "runner local"))
+    (should (rbx-ui-test--line-matching "memory 256 MiB"))
+    (should (rbx-ui-test--line-matching "AC ×2 · TLE ×1\\.5 · step 100 ms"))))
+
+(ert-deftest rbx-time-profile-view-shows-each-group-and-how-it-was-reached ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (let ((base (rbx-ui-test--line-matching "^Base "))
+          (py (rbx-ui-test--line-matching "^py "))
+          (cpp (rbx-ui-test--line-matching "^cpp, c ")))
+      (should (string-match-p "100 ms.*estimated" base))
+      (should (string-match-p "400 ms.*×3 of cpp \\+ 50 ms" py))
+      ;; A hand edit is marked beside the estimate it replaced.
+      (should (string-match-p "edited, estimated 300 ms" py))
+      (should (string-match-p "leftover" cpp))
+      (should (string-match-p "≥ 10 ms (sols/main\\.cpp)" cpp)))
+    ;; Groups come in the profile's order, after the base row.
+    (should (< (progn (re-search-forward "^Base ") (point))
+               (progn (re-search-forward "^py ") (point))
+               (progn (re-search-forward "^cpp, c ") (point))))))
+
+(ert-deftest rbx-time-profile-view-lists-measured-solutions-under-their-group ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (let ((main (rbx-ui-test--line-matching "sols/main\\.cpp  "))
+          (slow (rbx-ui-test--line-matching "sols/tle-slow\\.cpp"))
+          (fast (rbx-ui-test--line-matching "sols/tle-fast\\.cpp"))
+          (never (rbx-ui-test--line-matching "sols/tle-never\\.cpp")))
+      (should (string-match-p "accepted.*5 ms" main))
+      (should (string-match-p "too slow.*>150 ms.*timed out" slow))
+      ;; What rbx recorded checking slow solutions at the limit.
+      (should (string-match-p "too slow.*90 ms.*finished in time" fast))
+      (should (string-match-p "too slow.*not run" never)))
+    (re-search-forward "^py ")
+    (should (re-search-forward "sols/slow\\.py.*250 ms" nil t))
+    ;; The solution's name takes the colour of its declared outcome.
+    (goto-char (point-min))
+    (re-search-forward "^  \\(sols/main\\.cpp\\)")
+    (should (memq 'rbx-expected-accepted
+                  (ensure-list (get-text-property (match-beginning 1)
+                                                  'font-lock-face))))))
+
+(ert-deftest rbx-time-profile-view-flags-what-rbx-recorded-as-broken ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (should (rbx-ui-test--line-matching
+             "own accepted solutions need ≥ 500 ms (sols/slow\\.py)"))
+    (re-search-forward "sols/tle-fast\\.cpp.*\\(finished in time\\)")
+    (should (eq (get-text-property (match-beginning 1) 'font-lock-face)
+                'rbx-warning))
+    ;; A confirmed one is not a warning.
+    (goto-char (point-min))
+    (re-search-forward "sols/tle-slow\\.cpp.*\\(timed out\\)")
+    (should-not (eq (get-text-property (match-beginning 1) 'font-lock-face)
+                    'rbx-warning))))
+
+(ert-deftest rbx-time-profile-view-keeps-run-channels-separate ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (let ((wa (rbx-ui-test--line-matching "sols/wa-off\\.cpp"))
+          (re (rbx-ui-test--line-matching "sols/re\\.py")))
+      (should (string-match-p "^ *✓ sols/wa-off\\.cpp  declared WA → got WA  7 ms" wa))
+      (should (string-match-p "^ *✗ sols/re\\.py  declared RTE → got AC" re))
+      ;; A run that stopped early only bounds its time from below.
+      (should (string-match-p "≥20 ms" re))
+      ;; Judged at an older limit than the group shows now.
+      (should (string-match-p "judged at 300 ms" re))
+      (should-not (string-match-p "judged at" wa)))
+    (should (rbx-ui-test--line-matching "Judged at the limit (rbx time --run-all)"))))
+
+(ert-deftest rbx-time-profile-view-visits-a-solution ()
+  (rbx-ui-test--with-time-profile-view "local"
+    (re-search-forward "sols/tle-slow\\.cpp")
+    (let ((context (rbx--context)))
+      (should (eq (plist-get context :kind) 'solution))
+      (should (equal (rbx-solution-path (plist-get context :solution))
+                     "sols/tle-slow.cpp")))
+    (re-search-forward "sols/wa-off\\.cpp")
+    (should (equal (rbx-solution-path (plist-get (rbx--context) :solution))
+                   "sols/wa-off.cpp"))))
+
+(ert-deftest rbx-time-profile-view-explains-a-missing-profile ()
+  (rbx-ui-test--with-time-profile-view "moj"
+    (should (rbx-ui-test--line-matching "^Time profile moj"))
+    (should (rbx-ui-test--line-matching
+             "No time profile `moj'.  Run `rbx time -p moj' in your terminal\\."))))
+
+(ert-deftest rbx-time-profile-view-notes-an-inheriting-profile ()
+  (rbx-test-with-directory root
+    (rbx-test-write root ".limits/pkg.yml"
+                    "inheritFromPackage: true\ntimeLimit: 300\n")
+    (rbx-reset-artifact-cache)
+    (with-temp-buffer
+      (rbx-view-mode)
+      (let ((inhibit-read-only t))
+        (rbx--insert-time-profile-view
+         (rbx-package-create :root (file-name-as-directory root)
+                             :build-dir "build")
+         "pkg"))
+      (should (string-match-p "uses the limits in problem\\.rbx\\.yml"
+                              (buffer-string))))))
+
+(ert-deftest rbx-default-time-profile-prefers-the-visited-file ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\n")
+      (with-temp-buffer
+        (setq buffer-file-name (expand-file-name ".limits/moj.yml" root))
+        (should (equal (rbx--default-time-profile package) "moj")))
+      (with-temp-buffer
+        (should (equal (rbx--default-time-profile package) "local"))))))
+
+(ert-deftest rbx-default-time-profile-follows-the-last-run ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\n")
+      (rbx-test-write root ".rbx/runs/skeleton.yml"
+                      (concat "solutions: []\nentries: []\ngroups: []\n"
+                              "limits:\n  cpp: {time: 1000, memory: 256, "
+                              "profile: moj}\n"))
+      (rbx-reset-artifact-cache)
+      (with-temp-buffer
+        (should (equal (rbx--default-time-profile package) "moj"))))))
+
+(ert-deftest rbx-time-profile-view-opens-the-visited-profile ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root))
+          (rbx-refresh-delay 0))
+      (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\nrunner: moj\n")
+      (let ((buffer
+             (with-temp-buffer
+               (setq default-directory (file-name-as-directory root)
+                     buffer-file-name (expand-file-name ".limits/moj.yml" root))
+               (rbx-time-profile-view package))))
+        (unwind-protect
+            (with-current-buffer buffer
+              (should (eq rbx--view 'time-profile))
+              (should (equal rbx--time-profile "moj"))
+              (should (string-match-p "runner moj" (buffer-string))))
+          (kill-buffer buffer))))))
+
+(provide 'rbx-ui-test)
+;;; rbx-ui-test.el ends here

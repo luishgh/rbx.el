@@ -368,6 +368,50 @@ Statement and stress failures are findings rbx publishes, not errors."
         (should (string-match-p "wa-bad\\.cpp" (buffer-string)))
         (should (string-match-p "WA" (buffer-string)))))))
 
+(ert-deftest rbx-integration-time-profile-round-trip ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-package demo
+    ;; Not needed by the estimate, so `--run-all' judges it at the limit.
+    (rbx-test-write
+     demo "sols/wa-off.cpp"
+     (concat "#include <bits/stdc++.h>\n"
+             "int main() { long long a, b; std::cin >> a >> b;\n"
+             "  std::cout << a + b + 1 << std::endl; }\n"))
+    (rbx-integration-test--run demo "time" "--auto" "--run-all")
+    (rbx-reset-artifact-cache)
+    (let* ((package (rbx-find-package demo))
+           (profile (rbx-load-time-profile package "local")))
+      (should (member "local" (rbx-time-profile-names package)))
+      (should profile)
+      (should (equal (rbx-time-profile-runner profile) "local"))
+      (should (rbx-time-profile-multipliers profile))
+      (should (rbx-time-profile-groups profile))
+      (should (rbx-time-profile-base-estimate profile))
+      (let ((main (cl-find "sols/main.cpp" (rbx-time-profile-solutions profile)
+                           :key #'rbx-timing-solution-path :test #'equal))
+            (run (car (rbx-time-profile-runs profile))))
+        (should (eq (rbx-timing-solution-role main) 'lower))
+        (should (numberp (rbx-timing-solution-time main)))
+        (should (equal (rbx-profile-run-path run) "sols/wa-off.cpp"))
+        (should (equal (rbx-profile-run-expected-outcome run) "WRONG_ANSWER"))
+        (should (equal (rbx-profile-run-outcome run) "wrong-answer"))
+        (should (eq (rbx-profile-run-matches-expectation run) t))
+        (should (rbx-profile-run-complete run))
+        ;; The run is filed under the group of its language.
+        (should (cl-some (lambda (row)
+                           (and (rbx-time-profile-row-group row)
+                                (member "cpp" (rbx-timing-group-languages
+                                               (rbx-time-profile-row-group row)))
+                                (memq run (rbx-time-profile-row-runs row))))
+                         (cdr (rbx-time-profile-rows profile)))))
+      (with-temp-buffer
+        (rbx-view-mode)
+        (let ((inhibit-read-only t))
+          (rbx--insert-time-profile-view package "local"))
+        (should (string-match-p "sols/main\\.cpp +accepted" (buffer-string)))
+        (should (string-match-p "✓ sols/wa-off\\.cpp  declared WA → got WA"
+                                (buffer-string)))))))
+
 (ert-deftest rbx-integration-statement-report-round-trip ()
   (skip-unless (file-executable-p rbx-integration-test--program))
   (skip-unless (executable-find "pdflatex"))
