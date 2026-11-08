@@ -256,6 +256,8 @@ adjusted by the user remains intact."
 (defclass rbx-contest-section (magit-section) ())
 (defclass rbx-contest-variant-section (magit-section) ())
 (defclass rbx-contest-problem-section (magit-section) ())
+(defclass rbx-time-group-section (magit-section) ())
+(defclass rbx-time-solution-section (magit-section) ())
 
 (defvar-keymap rbx-view-mode-map
   :doc "Keymap for `rbx-view-mode'."
@@ -281,6 +283,9 @@ Non-nil exactly when the current run view is following, per
 
 (defvar-local rbx--view nil
   "Kind of the current view, either `run' or `testset'.")
+
+(defvar-local rbx--time-profile nil
+  "Name of the limits profile shown in the current time profile view.")
 
 (defvar-local rbx--watcher nil
   "Artifact watcher owned by the current view buffer.")
@@ -1321,6 +1326,8 @@ selection a terminal invocation used."
       ('contest (rbx--insert-contest-view rbx--contest-root))
       ('gallery (rbx--insert-gallery-view rbx--package))
       ('stress (rbx--insert-stress-view rbx--package))
+      ('time-profile
+       (rbx--insert-time-profile-view rbx--package rbx--time-profile))
       (_ (insert "Unknown rbx view.\n")))
     (goto-char (point-min))
     (forward-line (1- line))))
@@ -1508,8 +1515,9 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
          (cdr (assoc (completing-read "rbx problem: " choices nil t)
                      choices)))))))
 
-(defun rbx--open-view (view &optional package)
-  "Open VIEW for PACKAGE."
+(defun rbx--open-view (view &optional package setup)
+  "Open VIEW for PACKAGE.
+SETUP, when non-nil, is called in the view buffer before it is drawn."
   (rbx-ensure-yq)
   (let* ((selected (let ((chosen (or package (rbx--select-package))))
                      (if (eq view 'adhoc) (rbx-adhoc-package chosen) chosen)))
@@ -1527,6 +1535,7 @@ a letter, e.g. both starting at \"A\", stay visually distinct."
     (setq rbx--package selected
           rbx--view view
           default-directory (rbx-package-root selected))
+    (when setup (funcall setup))
     (rbx--start-buffer-watcher)
     (rbx-refresh)
     buffer))
@@ -2305,6 +2314,321 @@ default."
                                         (caar matching))
                        choices)))))))
 
+;;;; Time profiles
+
+(defun rbx--ms (value)
+  "Format VALUE milliseconds."
+  (format "%d ms" (round value)))
+
+(defun rbx--time-profile-ratios (multipliers)
+  "Describe MULTIPLIERS on one line, or return nil."
+  (when multipliers
+    (let ((parts
+           (delq nil
+                 (list
+                  (when-let* ((v (rbx-timing-multipliers-ac-to-time-limit
+                                  multipliers)))
+                    (format "AC ×%g" v))
+                  (when-let* ((v (rbx-timing-multipliers-fastest-to-time-limit
+                                  multipliers)))
+                    (format "fastest ×%g" v))
+                  (when-let* ((v (rbx-timing-multipliers-time-limit-to-tle
+                                  multipliers)))
+                    (format "TLE ×%g" v))
+                  (when-let* ((v (rbx-timing-multipliers-time-resolution
+                                  multipliers)))
+                    (format "step %s" (rbx--ms v)))))))
+      (and parts (string-join parts " · ")))))
+
+(defun rbx--timing-bound-text (prefix bound)
+  "Describe BOUND after PREFIX, or return nil without one."
+  (when bound
+    (format "%s %s%s" prefix (rbx--ms (rbx-timing-bound-value bound))
+            (if-let* ((solution (rbx-timing-bound-solution bound)))
+                (format " (%s)" solution)
+              ""))))
+
+(defun rbx--timing-group-source (group)
+  "Describe how GROUP's time limit was reached, or return nil."
+  (when group
+    (let ((origin (rbx-timing-group-origin group)))
+      (string-join
+       (delq
+        nil
+        (list
+         (pcase origin
+           ("multiplier"
+            (format "×%g of %s%s"
+                    (or (rbx-timing-group-multiplier group) 1)
+                    (or (rbx-timing-group-relative-to-language group) "?")
+                    (if-let* ((increment (rbx-timing-group-increment group)))
+                        (format " + %s" (rbx--ms increment))
+                      "")))
+           (_ origin))
+         (when (rbx-timing-group-leftover group)
+           (propertize "leftover"
+                       'help-echo "Pools every language no group lists"))
+         (when-let* ((estimate (rbx-timing-group-estimated-time-limit group)))
+           (rbx--fontify (format "edited, estimated %s" (rbx--ms estimate))
+                         'rbx-warning))
+         (rbx--timing-bound-text "≥" (rbx-timing-group-lower-bound group))
+         (rbx--timing-bound-text "≤" (rbx-timing-group-upper-bound group))))
+       " · "))))
+
+(defun rbx--time-profile-row-label (row)
+  "Return the label of ROW: `Base', or its group's languages."
+  (if (eq (rbx-time-profile-row-key row) 'base)
+      "Base"
+    (string-join (rbx-timing-group-languages (rbx-time-profile-row-group row))
+                 ", ")))
+
+(defun rbx--timing-solution-note (path group)
+  "Return what checking PATH at GROUP's limit found, or nil."
+  (when group
+    (cond
+     ((member path (rbx-timing-group-confirmed group))
+      (rbx--fontify "timed out" 'shadow))
+     ((cl-find path (rbx-timing-group-violating group)
+               :key #'rbx-timing-bound-solution :test #'equal)
+      (rbx--fontify "finished in time" 'rbx-warning))
+     ((member path (rbx-timing-group-skipped group))
+      (rbx--fontify "not checked" 'shadow)))))
+
+(defun rbx--insert-time-solution (package entry width)
+  "Insert a measured solution ENTRY of PACKAGE, its name padded to WIDTH.
+ENTRY is a list (PATH ROLE TIME NOTE)."
+  (pcase-let* ((`(,path ,role ,time ,note) entry)
+               (declared (rbx-declared-outcome
+                          package (rbx-package-file-path package path)))
+               (context (list :kind 'solution :package package
+                              :solution (rbx-solution-create
+                                         :path path
+                                         :expected-outcome declared))))
+    (magit-insert-section (rbx-time-solution-section context)
+      (insert (format "  %s%s  %-8s  %s\n"
+                      (rbx--fontify path (rbx--expected-face-value declared))
+                      (make-string (max 0 (- width (string-width path))) ?\s)
+                      (pcase role ('lower "accepted") ('upper "too slow")
+                             (_ "?"))
+                      (rbx--meta time note))))))
+
+(defun rbx--time-solution-entries (row extras)
+  "Return the measured solutions filed under ROW, as (PATH ROLE TIME NOTE).
+With EXTRAS, also list slow solutions the group's check named but the
+estimate kept no timing for."
+  (let ((group (rbx-time-profile-row-group row))
+        (entries nil))
+    (cl-flet ((add (path role time)
+                (unless (assoc path entries)
+                  (push (list path role time
+                              (rbx--timing-solution-note path group))
+                        entries))))
+      (dolist (solution (rbx-time-profile-row-solutions row))
+        (add (rbx-timing-solution-path solution)
+             (rbx-timing-solution-role solution)
+             (cond
+              ((rbx-timing-solution-time solution)
+               (rbx--ms (rbx-timing-solution-time solution)))
+              ((rbx-timing-solution-survived-at solution)
+               (concat ">" (rbx--ms (rbx-timing-solution-survived-at
+                                     solution))))
+              (t "not run"))))
+      (when (and extras group)
+        (dolist (bound (rbx-timing-group-violating group))
+          (when-let* ((path (rbx-timing-bound-solution bound)))
+            (add path 'upper (rbx--ms (rbx-timing-bound-value bound)))))
+        (dolist (path (append (rbx-timing-group-confirmed group)
+                              (rbx-timing-group-skipped group)))
+          (add path 'upper "not run"))))
+    (nreverse entries)))
+
+(defun rbx--insert-time-solutions (package row extras)
+  "Insert the measured solutions filed under ROW of PACKAGE.
+EXTRAS is as for `rbx--time-solution-entries'."
+  (let* ((entries (rbx--time-solution-entries row extras))
+         (width (apply #'max 0 (mapcar (lambda (entry)
+                                         (string-width (car entry)))
+                                       entries))))
+    (dolist (entry entries)
+      (rbx--insert-time-solution package entry width))))
+
+(defun rbx--insert-profile-run (package row run)
+  "Insert RUN, judged at the limit of ROW, for PACKAGE."
+  (let* ((matches (rbx-profile-run-matches-expectation run))
+         (limit (rbx-profile-run-time-limit run))
+         (stale (and limit (rbx-time-profile-row-time-limit row)
+                     (/= limit (rbx-time-profile-row-time-limit row))))
+         (state (unless (eq matches 'unknown) (rbx--row-state matches stale)))
+         (expected (rbx-profile-run-expected-outcome run))
+         (outcome (rbx-profile-run-outcome run))
+         (time (rbx-profile-run-time run))
+         (context (list :kind 'solution :package package
+                        :solution (rbx-solution-create
+                                   :path (rbx-profile-run-path run)
+                                   :expected-outcome expected))))
+    (magit-insert-section (rbx-time-solution-section context)
+      (insert
+       (rbx--decorate-row
+        (format
+         "  %s %s  declared %s → got %s  %s\n"
+         (if (eq matches 'unknown)
+             (rbx--fontify "?" 'shadow)
+           (rbx--match-marker matches stale))
+         (rbx--fontify (rbx-profile-run-path run)
+                       (rbx--expected-face-value expected))
+         (rbx--expected expected)
+         (rbx--actual outcome)
+         (rbx--meta
+          (when time
+            (if (rbx-profile-run-complete run)
+                (rbx--ms time)
+              (propertize (concat "≥" (rbx--ms time))
+                          'help-echo
+                          "Stopped before judging every testcase")))
+          (unless (rbx-profile-run-complete run)
+            (rbx--fontify "stopped early" 'shadow))
+          (when stale
+            (propertize
+             (rbx--fontify (format "judged at %s" (rbx--ms limit))
+                           'rbx-warning)
+             'help-echo
+             (format "Judged at %s; the limit is now %s.  Run `rbx time --run-all' again."
+                     (rbx--ms limit)
+                     (rbx--ms (rbx-time-profile-row-time-limit row)))))))
+        state))
+      (when state
+        (rbx--insert-solution-fringe state)))))
+
+(defun rbx--insert-time-profile-row (package row extras)
+  "Insert ROW of a limits profile for PACKAGE; EXTRAS as for solutions."
+  (let ((group (rbx-time-profile-row-group row))
+        (limit (rbx-time-profile-row-time-limit row)))
+    (magit-insert-section
+        (rbx-time-group-section (list :kind 'time-group
+                                      :key (rbx-time-profile-row-key row)))
+      (magit-insert-heading
+        (format "%s  %s%s\n"
+                (propertize (rbx--time-profile-row-label row) 'face 'bold)
+                (if limit (rbx--ms limit) "no time limit")
+                (if-let* ((source (rbx--timing-group-source group))
+                          ((not (string-empty-p source))))
+                    (concat "  " (propertize source 'face 'shadow))
+                  "")))
+      (when-let* ((violation (and group
+                                  (rbx-timing-group-lower-violation group))))
+        (insert (rbx--fontify
+                 (concat "  ⚠ "
+                         (rbx--timing-bound-text
+                          "own accepted solutions need ≥" violation)
+                         "\n")
+                 'rbx-warning)))
+      (rbx--insert-time-solutions package row extras)
+      (when-let* ((runs (rbx-time-profile-row-runs row)))
+        (insert (propertize "  Judged at the limit (rbx time --run-all)\n"
+                            'face 'shadow))
+        (dolist (run runs)
+          (rbx--insert-profile-run package row run))))))
+
+(defun rbx--insert-time-profile-view (package name)
+  "Insert PACKAGE's limits profile NAME at point."
+  (rbx--clear-fringe-overlays)
+  (let ((profile (rbx-load-time-profile package name))
+        (others (remove name (rbx-time-profile-names package))))
+    (magit-insert-section (rbx-root-section (list :kind 'root :package package))
+      (magit-insert-heading
+        (format "Time profile %s · %s\n" name
+                (rbx--package-heading-label
+                 package (abbreviate-file-name (rbx-package-root package)))))
+      (if (null profile)
+          (insert (propertize
+                   (format "No time profile `%s'.  Run `rbx time -p %s' in your terminal.\n"
+                           name name)
+                   'face 'shadow))
+        (let ((details
+               (delq nil
+                     (list
+                      (when-let* ((runner (rbx-time-profile-runner profile)))
+                        (format "runner %s" runner))
+                      (when-let* ((memory (rbx-time-profile-memory-limit profile)))
+                        (format "memory %s" (rbx-format-memory
+                                             (* memory 1048576))))
+                      (when-let* ((output (rbx-time-profile-output-limit profile)))
+                        (format "output %s" (rbx-format-memory
+                                             (* output 1024))))))))
+          (when details
+            (insert (propertize (concat "  " (string-join details " · ") "\n")
+                                'face 'shadow))))
+        (when-let* ((ratios (rbx--time-profile-ratios
+                             (rbx-time-profile-multipliers profile))))
+          (insert (propertize (format "  ratios %s\n" ratios) 'face 'shadow)))
+        (when (rbx-time-profile-inherit profile)
+          (insert (rbx--fontify
+                   "  This profile uses the limits in problem.rbx.yml; the ones below are kept but not applied.\n"
+                   'rbx-warning)))
+        (when others
+          (insert (propertize (format "  other profiles: %s\n"
+                                      (string-join others " · "))
+                              'face 'shadow)))
+        (let ((grouped (rbx-time-profile-groups profile)))
+          (dolist (row (rbx-time-profile-rows profile))
+            ;; rbx repeats the leftover group's check on the base estimate,
+            ;; so only list unmeasured slow solutions under base when it is
+            ;; the only row.
+            (rbx--insert-time-profile-row
+             package row (not (and grouped (eq (rbx-time-profile-row-key row)
+                                               'base))))))))))
+
+(defun rbx--default-time-profile (package)
+  "Return the profile of PACKAGE to show by default, or nil.
+That is the profile visited in the current buffer, the one the last run
+resolved its limits from, `local', or else the first one."
+  (let ((names (rbx-time-profile-names package))
+        (file buffer-file-name))
+    (or (and file
+             (string-suffix-p ".yml" file)
+             (equal (directory-file-name (file-name-directory
+                                          (expand-file-name file)))
+                    (directory-file-name (rbx-limits-path package)))
+             (file-name-base file))
+        (and (eq rbx--view 'time-profile) (member rbx--time-profile names)
+             rbx--time-profile)
+        (when-let* ((skeleton (rbx-load-skeleton package))
+                    (used (seq-some (lambda (entry)
+                                      (rbx-limits-profile (cdr entry)))
+                                    (rbx-skeleton-limits skeleton))))
+          (car (member used names)))
+        (car (member "local" names))
+        (car names))))
+
+(defun rbx--read-time-profile (package)
+  "Choose one of PACKAGE's limits profiles, prompting when ambiguous.
+A profile visited in the current buffer is chosen without asking."
+  (let ((names (rbx-time-profile-names package))
+        (default (rbx--default-time-profile package)))
+    (cond
+     ((and buffer-file-name default
+           (equal (file-name-base buffer-file-name) default)
+           (string-suffix-p ".yml" buffer-file-name))
+      default)
+     ((null names)
+      (user-error "No time profiles yet.  Run `rbx time' in your terminal"))
+     ((null (cdr names)) (car names))
+     (t (completing-read "Time profile: " names nil t nil nil default)))))
+
+;;;###autoload
+(defun rbx-time-profile-view (&optional package profile)
+  "Open the limits PROFILE of PACKAGE, as `rbx time' wrote it.
+Shows each language group's limit and how it was reached, the solutions
+the estimate measured, and the verdicts `rbx time --run-all' recorded.
+Interactively, the profile visited in the current buffer is used, or
+else one is chosen."
+  (interactive)
+  (rbx-ensure-yq)
+  (let* ((package (or package (rbx--view-or-selected-package)))
+         (profile (or profile (rbx--read-time-profile package))))
+    (rbx--open-view 'time-profile package
+                    (lambda () (setq rbx--time-profile profile)))))
+
 (defun rbx--view-or-selected-package ()
   "Return the package of the current rbx view, or select one."
   (or (and (boundp 'rbx--package) rbx--package) (rbx--select-package)))
@@ -2355,6 +2679,7 @@ Flymake shows the located errors; the log has everything else."
     ("c" "Contest" rbx-contest-view)
     ("G" "Visualizations" rbx-visualization-gallery)
     ("S" "Stress findings" rbx-stress-view)
+    ("T" "Time profile" rbx-time-profile-view)
     ("P" "Preview statement" rbx-preview-statement)
     ("L" "Statement build log" rbx-statement-open-log)
     ("p" "Select problem" rbx-select-package :if-mode rbx-view-mode)
