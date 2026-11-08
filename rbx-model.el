@@ -178,6 +178,62 @@ canonical variant when there is no dispatcher), and PROBLEM the matching
 declared entry."
   root contest problem)
 
+(cl-defstruct (rbx-time-profile (:constructor rbx-time-profile-create))
+  "A limits profile, `.limits/<name>.yml', as `rbx time' wrote it.
+TIME-LIMIT is in ms, MEMORY-LIMIT in MiB and OUTPUT-LIMIT in KiB.  INHERIT
+means the profile takes its limits from `problem.rbx.yml'.  MULTIPLIERS is
+an `rbx-timing-multipliers', GROUPS a list and BASE-ESTIMATE one
+`rbx-timing-group'.  RUNNER names where the estimate was measured.
+SOLUTIONS are the `rbx-timing-solution's the estimate measured, and RUNS
+the `rbx-profile-run's judged at its limit by `rbx time --run-all'."
+  time-limit memory-limit output-limit inherit multipliers groups
+  base-estimate runner solutions runs)
+
+(cl-defstruct (rbx-timing-multipliers
+               (:constructor rbx-timing-multipliers-create))
+  "The ratios a limits profile was estimated from."
+  ac-to-time-limit fastest-to-time-limit time-limit-to-tle time-resolution)
+
+(cl-defstruct (rbx-timing-group (:constructor rbx-timing-group-create))
+  "How one language group's time limit was reached, in ms.
+ORIGIN is `estimated', `multiplier' or `defaulted'.  A derived group's
+limit is MULTIPLIER times RELATIVE-TO-LANGUAGE's, plus INCREMENT.
+ESTIMATED-TIME-LIMIT is set only when the limit was changed by hand.
+LOWER-BOUND, UPPER-BOUND and LOWER-VIOLATION are `rbx-timing-bound's;
+CONFIRMED, VIOLATING (bounds) and SKIPPED are the group's slow solutions
+by what checking them at the limit found."
+  languages time-limit origin solution-count fastest slowest
+  relative-to-language multiplier increment leftover estimated-time-limit
+  lower-bound upper-bound lower-violation confirmed violating skipped)
+
+(cl-defstruct (rbx-timing-bound (:constructor rbx-timing-bound-create))
+  "A bound on a time limit: VALUE ms, set by SOLUTION when one did."
+  value solution)
+
+(cl-defstruct (rbx-timing-solution (:constructor rbx-timing-solution-create))
+  "A solution an estimate measured.
+ROLE is `lower' for one the limit must let pass, or `upper' for one it
+must time out.  TIME is how long it took, or SURVIVED-AT how long it was
+seen still running, in ms."
+  path language role time survived-at)
+
+(cl-defstruct (rbx-profile-run (:constructor rbx-profile-run-create))
+  "A solution judged at a profile's limit by `rbx time --run-all'.
+EXPECTED-OUTCOME is canonical, OUTCOME an actual rbx outcome.
+MATCHES-EXPECTATION is t, nil, or `unknown' when not recorded.  TIME is
+its slowest testcase in ms; when COMPLETE is nil the run stopped early,
+so TIME is only a lower bound.  TIME-LIMIT is the limit it ran under."
+  path language time-limit expected-outcome outcome matches-expectation
+  time complete)
+
+(cl-defstruct (rbx-time-profile-row
+               (:constructor rbx-time-profile-row-create))
+  "One row of a limits profile, as rbx's own editor groups it.
+KEY is `base' or the index of GROUP among the profile's groups.  GROUP is
+nil for a base row with no estimate.  SOLUTIONS and RUNS are the entries
+filed under this row."
+  key group time-limit solutions runs)
+
 (defconst rbx--model-missing (make-symbol "rbx-missing")
   "Sentinel used to distinguish a missing field from YAML false or null.")
 
@@ -736,6 +792,134 @@ extension hints variables in both."
        :pid (let ((pid (rbx--model-number raw "pid"))) (and pid (truncate pid)))
        :host (rbx--model-string raw "host")))))
 
+(defun rbx--parse-timing-bound (raw)
+  "Parse RAW as an `rbx-timing-bound', or nil without a value."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (value (rbx--model-number raw "value")))
+    (rbx-timing-bound-create :value value
+                             :solution (rbx--model-string raw "solution"))))
+
+(defun rbx--parse-timing-multipliers (raw)
+  "Parse RAW as an `rbx-timing-multipliers', or nil."
+  (when (rbx--wire-mapping-p raw)
+    (rbx-timing-multipliers-create
+     :ac-to-time-limit (rbx--model-number raw "acToTimeLimit")
+     :fastest-to-time-limit (rbx--model-number raw "fastestToTimeLimit")
+     :time-limit-to-tle (rbx--model-number raw "timeLimitToTle")
+     :time-resolution (rbx--model-number raw "timeResolution"))))
+
+(defun rbx--parse-timing-group (raw)
+  "Parse RAW as an `rbx-timing-group', or nil without a time limit."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (time-limit (rbx--model-number raw "timeLimit")))
+    (rbx-timing-group-create
+     :languages (rbx--model-strings raw "languages")
+     :time-limit time-limit
+     :origin (rbx--model-string raw "origin")
+     :solution-count (rbx--model-number raw "solutionCount")
+     :fastest (rbx--model-number raw "fastest")
+     :slowest (rbx--model-number raw "slowest")
+     :relative-to-language (rbx--model-string raw "relativeToLanguage")
+     :multiplier (rbx--model-number raw "multiplier")
+     :increment (rbx--model-number raw "increment")
+     :leftover (rbx--model-boolean raw '("isLeftover") nil)
+     :estimated-time-limit (rbx--model-number raw "estimatedTimeLimit")
+     :lower-bound (rbx--parse-timing-bound
+                   (rbx--model-field raw "lowerBound"))
+     :upper-bound (rbx--parse-timing-bound
+                   (rbx--model-field raw "upperBound"))
+     :lower-violation (rbx--parse-timing-bound
+                       (rbx--model-field raw "lowerViolation"))
+     :confirmed (rbx--model-strings raw "upperValidation" "confirmed")
+     :violating (delq nil (mapcar #'rbx--parse-timing-bound
+                                  (rbx--wire-sequence
+                                   (rbx--model-field
+                                    raw "upperValidation" "violating"))))
+     :skipped (rbx--model-strings raw "upperValidation" "skipped"))))
+
+(defun rbx--parse-timing-solution (raw)
+  "Parse RAW as an `rbx-timing-solution', or nil without a path."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (path (rbx--model-string raw "path")))
+    (rbx-timing-solution-create
+     :path path
+     :language (rbx--model-string raw "language")
+     :role (pcase (downcase (or (rbx--model-string raw "role") ""))
+             ("lower" 'lower)
+             ("upper" 'upper))
+     :time (rbx--model-number raw "time")
+     :survived-at (rbx--model-number raw "survivedAt"))))
+
+(defun rbx--parse-profile-run (raw)
+  "Parse RAW as an `rbx-profile-run', or nil without a path."
+  (when-let* (((rbx--wire-mapping-p raw))
+              (path (rbx--model-string raw "path")))
+    (let ((expected (rbx--model-string raw "expectedOutcome")))
+      (rbx-profile-run-create
+       :path path
+       :language (rbx--model-string raw "language")
+       :time-limit (rbx--model-number raw "timeLimit")
+       :expected-outcome (or (rbx-normalize-outcome expected) expected)
+       :outcome (rbx--model-string raw "outcome")
+       :matches-expectation (rbx--model-boolean
+                             raw '("matchesExpectation") 'unknown)
+       :time (rbx--model-number raw "time")
+       :complete (rbx--model-boolean raw '("complete") t)))))
+
+(defun rbx-parse-time-profile (raw)
+  "Parse RAW as an `rbx-time-profile', or nil when it is not a mapping.
+Every field is optional and unknown ones are ignored, as rbx itself does:
+a profile may have been written by an older or newer rbx."
+  (when (rbx--wire-mapping-p raw)
+    (cl-flet ((entries (key parser)
+                (delq nil (mapcar parser (rbx--wire-sequence
+                                          (rbx--model-field raw key))))))
+      (rbx-time-profile-create
+       :time-limit (rbx--model-number raw "timeLimit")
+       :memory-limit (rbx--model-number raw "memoryLimit")
+       :output-limit (rbx--model-number raw "outputLimit")
+       :inherit (rbx--model-boolean raw '("inheritFromPackage") nil)
+       :multipliers (rbx--parse-timing-multipliers
+                     (rbx--model-field raw "multipliers"))
+       :groups (entries "groups" #'rbx--parse-timing-group)
+       :base-estimate (rbx--parse-timing-group
+                       (rbx--model-field raw "baseEstimate"))
+       :runner (rbx--model-string raw "runner")
+       :solutions (entries "solutions" #'rbx--parse-timing-solution)
+       :runs (entries "runs" #'rbx--parse-profile-run)))))
+
+(defun rbx-time-profile-rows (profile)
+  "Return PROFILE's rows: the base row, then one per group.
+An entry is filed under the first group listing its language, and under
+the base row otherwise, the way `rbx time-inspect' files them."
+  (let* ((base (rbx-time-profile-base-estimate profile))
+         (rows (cons (rbx-time-profile-row-create
+                      :key 'base :group base
+                      :time-limit (if base
+                                      (rbx-timing-group-time-limit base)
+                                    (rbx-time-profile-time-limit profile)))
+                     (cl-loop for group in (rbx-time-profile-groups profile)
+                              for index from 0
+                              collect (rbx-time-profile-row-create
+                                       :key index :group group
+                                       :time-limit
+                                       (rbx-timing-group-time-limit group)))))
+         (row-for (lambda (language)
+                    (or (cl-find-if
+                         (lambda (row)
+                           (member language (rbx-timing-group-languages
+                                             (rbx-time-profile-row-group row))))
+                         (cdr rows))
+                        (car rows)))))
+    (dolist (solution (reverse (rbx-time-profile-solutions profile)))
+      (push solution (rbx-time-profile-row-solutions
+                      (funcall row-for
+                               (rbx-timing-solution-language solution)))))
+    (dolist (run (reverse (rbx-time-profile-runs profile)))
+      (push run (rbx-time-profile-row-runs
+                 (funcall row-for (rbx-profile-run-language run)))))
+    rows))
+
 (defun rbx-testset-testcases (testset)
   "Join TESTSET entries to their build-time metadata."
   (let ((by-key (make-hash-table :test #'equal)))
@@ -821,6 +1005,11 @@ no testcases is omitted."
 (defun rbx-load-stress (package)
   "Read PACKAGE's latest stress session."
   (rbx--load-artifact (rbx-stress-manifest-path package) #'rbx-parse-stress))
+
+(defun rbx-load-time-profile (package name)
+  "Read PACKAGE's limits profile called NAME."
+  (rbx--load-artifact (rbx-time-profile-path package name)
+                      #'rbx-parse-time-profile))
 
 (defun rbx-load-evaluation (package solution-index testcase)
   "Read one evaluation for PACKAGE, SOLUTION-INDEX, and TESTCASE."
