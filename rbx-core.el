@@ -57,6 +57,10 @@ The captured group is the variant id, e.g. \"div1\" for
 (defconst rbx-default-build-directory "build"
   "Default relative build directory used by rbx.")
 
+(defconst rbx-limits-directory ".limits"
+  "Name of the directory holding a problem's limits profiles.
+`rbx time' writes each profile there as `<name>.yml'.")
+
 (cl-defstruct (rbx-package
                (:constructor rbx-package-create (&key root build-dir runs-subdir)))
   "A discovered rbx package.
@@ -628,6 +632,24 @@ EXTENSION includes its leading dot: `.in' or `.out'."
                                 (directory-files
                                  findings t "\\`[0-9]+\\'"))))))))
 
+(defun rbx-limits-path (package)
+  "Return PACKAGE's limits profile directory."
+  (expand-file-name rbx-limits-directory (rbx-package-root package)))
+
+(defun rbx-time-profile-path (package name)
+  "Return the path of PACKAGE's limits profile called NAME."
+  (expand-file-name (concat name ".yml") (rbx-limits-path package)))
+
+(defun rbx-time-profile-names (package)
+  "Return the names of PACKAGE's limits profiles, sorted."
+  (let ((directory (rbx-limits-path package)))
+    (when (file-directory-p directory)
+      (sort (mapcar #'file-name-base
+                    (seq-filter #'file-regular-p
+                                (directory-files
+                                 directory t "\\.yml\\'")))
+            #'string<))))
+
 (defun rbx-build-path (package)
   "Return PACKAGE's absolute build directory."
   (expand-file-name (rbx-package-build-dir package)
@@ -721,7 +743,8 @@ These hold the `.eval' files that arrive while a run is in progress.
                               (file-name-directory
                                (rbx-statement-report-path package))
                               (rbx-build-path package)
-                              (rbx-tests-path package))
+                              (rbx-tests-path package)
+                              (rbx-limits-path package))
                         (rbx--preset-watch-directories package)
                         (rbx--run-subdirectories package)
                         (rbx--stress-subdirectories package)
@@ -742,7 +765,8 @@ These hold the `.eval' files that arrive while a run is in progress.
               (rx "." (or "eval" "out" "in" "err" "log" "pio")
                   string-end)
               path)
-             (string-match-p (rx "/.rbx" (or "/" string-end)) path)))))
+             (string-match-p (rx "/" (or ".rbx" ".limits") (or "/" string-end))
+                             path)))))
 
 (defun rbx--watcher-sync (watcher)
   "Make WATCHER watch exactly what its package needs watched right now.

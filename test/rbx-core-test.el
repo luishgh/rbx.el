@@ -307,6 +307,40 @@ first; removed watches are dropped from it."
       (should (member (expand-file-name ".rbx/statements" root)
                       (rbx--watchable-directories package))))))
 
+(ert-deftest rbx-time-profile-paths-follow-the-published-layout ()
+  (let ((package (rbx-package-create :root "/p/" :build-dir "build")))
+    (should (equal (rbx-limits-path package) "/p/.limits"))
+    (should (equal (rbx-time-profile-path package "local")
+                   "/p/.limits/local.yml"))
+    ;; Profiles belong to the problem, not to whichever run it is showing.
+    (should (equal (rbx-time-profile-path (rbx-adhoc-package package) "moj")
+                   "/p/.limits/moj.yml"))))
+
+(ert-deftest rbx-time-profile-names-lists-yml-files-sorted ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (should-not (rbx-time-profile-names package))
+      (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\n")
+      (rbx-test-write root ".limits/local.yml" "timeLimit: 100\n")
+      (rbx-test-write root ".limits/notes.txt" "not a profile\n")
+      (make-directory (expand-file-name ".limits/odd.yml" root))
+      (should (equal (rbx-time-profile-names package) '("local" "moj"))))))
+
+(ert-deftest rbx-watcher-covers-the-limits-directory ()
+  (rbx-test-with-directory root
+    (make-directory (expand-file-name ".limits" root))
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (should (member (expand-file-name ".limits" root)
+                      (rbx--watchable-directories package))))))
+
+(ert-deftest rbx-artifact-event-p-accepts-time-profiles ()
+  (should (rbx--artifact-event-p '(1 changed "/p/.limits/local.yml")))
+  ;; The directory itself appearing in the package root.
+  (should (rbx--artifact-event-p '(1 created "/p/.limits")))
+  (should-not (rbx--artifact-event-p '(1 changed "/p/limits.txt"))))
+
 (ert-deftest rbx-artifact-event-p-accepts-the-preset-environment-file ()
   (should (rbx--artifact-event-p
            '(1 changed "/p/.local.rbx/env.rbx.yml")))

@@ -775,5 +775,207 @@ PATHS are created under the package first."
                      "ACCEPTED"))
       (should (rbx-load-problem-statements package)))))
 
+;;;; Limits profiles
+
+(defconst rbx-test--time-profile-raw
+  '(("timeLimit" . 100) ("memoryLimit" . 256)
+    ("modifiers" . (("py" . (("time" . 300))) ("cpp" . (("time" . 100)))))
+    ("multipliers" . (("acToTimeLimit" . 2.0) ("timeLimitToTle" . 1.5)
+                      ("timeResolution" . 100)))
+    ("groups"
+     . ((("languages" . ("py")) ("timeLimit" . 400) ("origin" . "multiplier")
+         ("solutionCount" . 1) ("relativeToLanguage" . "cpp")
+         ("multiplier" . 3.0) ("increment" . 50) ("isLeftover" . :false)
+         ("estimatedTimeLimit" . 300)
+         ("lowerViolation" . (("value" . 500) ("solution" . "sols/slow.py"))))
+        (("languages" . ("cpp" "c")) ("timeLimit" . 100) ("origin" . "estimated")
+         ("solutionCount" . 1) ("fastest" . 5) ("slowest" . 5)
+         ("isLeftover" . t)
+         ("lowerBound" . (("value" . 10) ("solution" . "sols/main.cpp")))
+         ("upperBound" . (("value" . 120)))
+         ("upperValidation"
+          . (("confirmed" . ("sols/tle-slow.cpp"))
+             ("violating" . ((("value" . 90) ("solution" . "sols/tle-fast.cpp"))))
+             ("skipped" . ("sols/tle-never.cpp")))))
+        "not a group"
+        (("languages" . ("java")) ("origin" . "estimated"))))
+    ("baseEstimate" . (("languages") ("timeLimit" . 100) ("origin" . "estimated")
+                       ("solutionCount" . 1)))
+    ("estimationChecksum" . "v1.h.45bb30e5.-.a2345dd9")
+    ("runner" . "local")
+    ("someFutureField" . "ignored")
+    ("solutions"
+     . ((("path" . "sols/main.cpp") ("language" . "cpp") ("role" . "lower")
+         ("time" . 5))
+        (("path" . "sols/tle-slow.cpp") ("language" . "cpp") ("role" . "upper")
+         ("survivedAt" . 150))
+        (("path" . "sols/slow.py") ("language" . "py") ("role" . "LOWER")
+         ("time" . 250))
+        (("path" . "sols/main.kt") ("language" . "kt") ("role" . "lower")
+         ("time" . 40))
+        (("language" . "cpp") ("role" . "lower"))))
+    ("runs"
+     . ((("path" . "sols/wa-off.cpp") ("language" . "cpp") ("timeLimit" . 100)
+         ("expectedOutcome" . "WRONG_ANSWER") ("outcome" . "wrong-answer")
+         ("matchesExpectation" . t) ("time" . 7))
+        (("path" . "sols/re.py") ("language" . "py") ("timeLimit" . 300)
+         ("expectedOutcome" . "RUNTIME_ERROR") ("outcome" . "accepted")
+         ("matchesExpectation" . :false) ("time" . 20) ("complete" . :false))
+        (("path" . "sols/ce.go") ("language" . "go") ("timeLimit" . 100)
+         ("expectedOutcome" . "COMPILATION_ERROR")
+         ("matchesExpectation" . t))
+        (("language" . "cpp")))))
+  "A limits profile as the YAML reader delivers it.
+Shaped after what `rbx time --run-all' writes, with a hand-edited group
+and the presentation-only checks rbx records.")
+
+(ert-deftest rbx-parse-time-profile-reads-the-header ()
+  (let* ((profile (rbx-parse-time-profile rbx-test--time-profile-raw))
+         (multipliers (rbx-time-profile-multipliers profile)))
+    (should (= (rbx-time-profile-time-limit profile) 100))
+    (should (= (rbx-time-profile-memory-limit profile) 256))
+    (should-not (rbx-time-profile-output-limit profile))
+    (should-not (rbx-time-profile-inherit profile))
+    (should (equal (rbx-time-profile-runner profile) "local"))
+    (should (= (rbx-timing-multipliers-ac-to-time-limit multipliers) 2.0))
+    (should (= (rbx-timing-multipliers-time-limit-to-tle multipliers) 1.5))
+    (should-not (rbx-timing-multipliers-fastest-to-time-limit multipliers))
+    (should (= (rbx-timing-multipliers-time-resolution multipliers) 100))))
+
+(ert-deftest rbx-parse-time-profile-reads-groups ()
+  (let* ((profile (rbx-parse-time-profile rbx-test--time-profile-raw))
+         (groups (rbx-time-profile-groups profile))
+         (py (nth 0 groups))
+         (cpp (nth 1 groups))
+         (base (rbx-time-profile-base-estimate profile)))
+    ;; The string and the group with no limit are dropped.
+    (should (= (length groups) 2))
+    (should (equal (rbx-timing-group-languages py) '("py")))
+    (should (= (rbx-timing-group-time-limit py) 400))
+    (should (equal (rbx-timing-group-origin py) "multiplier"))
+    (should (equal (rbx-timing-group-relative-to-language py) "cpp"))
+    (should (= (rbx-timing-group-multiplier py) 3.0))
+    (should (= (rbx-timing-group-increment py) 50))
+    (should (= (rbx-timing-group-estimated-time-limit py) 300))
+    (should-not (rbx-timing-group-leftover py))
+    (should (= (rbx-timing-bound-value (rbx-timing-group-lower-violation py))
+               500))
+    (should (equal (rbx-timing-bound-solution
+                    (rbx-timing-group-lower-violation py))
+                   "sols/slow.py"))
+    (should (rbx-timing-group-leftover cpp))
+    (should (= (rbx-timing-group-fastest cpp) 5))
+    (should (= (rbx-timing-bound-value (rbx-timing-group-lower-bound cpp)) 10))
+    (should-not (rbx-timing-bound-solution (rbx-timing-group-upper-bound cpp)))
+    (should (equal (rbx-timing-group-confirmed cpp) '("sols/tle-slow.cpp")))
+    (should (equal (mapcar #'rbx-timing-bound-solution
+                           (rbx-timing-group-violating cpp))
+                   '("sols/tle-fast.cpp")))
+    (should (equal (rbx-timing-group-skipped cpp) '("sols/tle-never.cpp")))
+    (should (equal (rbx-timing-group-languages base) nil))
+    (should (= (rbx-timing-group-time-limit base) 100))))
+
+(ert-deftest rbx-parse-time-profile-reads-measurements-and-runs ()
+  (let* ((profile (rbx-parse-time-profile rbx-test--time-profile-raw))
+         (solutions (rbx-time-profile-solutions profile))
+         (runs (rbx-time-profile-runs profile)))
+    ;; Entries without a path are dropped.
+    (should (= (length solutions) 4))
+    (should (= (length runs) 3))
+    (let ((main (nth 0 solutions)) (slow (nth 1 solutions)))
+      (should (equal (rbx-timing-solution-path main) "sols/main.cpp"))
+      (should (equal (rbx-timing-solution-language main) "cpp"))
+      (should (eq (rbx-timing-solution-role main) 'lower))
+      (should (= (rbx-timing-solution-time main) 5))
+      (should (eq (rbx-timing-solution-role slow) 'upper))
+      (should-not (rbx-timing-solution-time slow))
+      (should (= (rbx-timing-solution-survived-at slow) 150)))
+    ;; Roles are read case-insensitively.
+    (should (eq (rbx-timing-solution-role (nth 2 solutions)) 'lower))
+    (let ((wa (nth 0 runs)) (re (nth 1 runs)) (ce (nth 2 runs)))
+      (should (equal (rbx-profile-run-path wa) "sols/wa-off.cpp"))
+      (should (= (rbx-profile-run-time-limit wa) 100))
+      (should (equal (rbx-profile-run-expected-outcome wa) "WRONG_ANSWER"))
+      (should (equal (rbx-profile-run-outcome wa) "wrong-answer"))
+      (should (eq (rbx-profile-run-matches-expectation wa) t))
+      (should (rbx-profile-run-complete wa))
+      (should (= (rbx-profile-run-time wa) 7))
+      (should (eq (rbx-profile-run-matches-expectation re) nil))
+      (should-not (rbx-profile-run-complete re))
+      (should-not (rbx-profile-run-outcome ce))
+      (should-not (rbx-profile-run-time ce)))))
+
+(ert-deftest rbx-parse-time-profile-tolerates-older-and-sparse-profiles ()
+  ;; Before rbx 2.6.1 there were no runs, and before 2.6.2 no runner.
+  (let ((profile (rbx-parse-time-profile
+                  '(("timeLimit" . 1000) ("inheritFromPackage" . t)))))
+    (should (= (rbx-time-profile-time-limit profile) 1000))
+    (should (rbx-time-profile-inherit profile))
+    (should-not (rbx-time-profile-runner profile))
+    (should-not (rbx-time-profile-multipliers profile))
+    (should-not (rbx-time-profile-groups profile))
+    (should-not (rbx-time-profile-base-estimate profile))
+    (should-not (rbx-time-profile-solutions profile))
+    (should-not (rbx-time-profile-runs profile)))
+  ;; An unknown matchesExpectation is neither a match nor a mismatch.
+  (let ((run (car (rbx-time-profile-runs
+                   (rbx-parse-time-profile
+                    '(("runs" . ((("path" . "a.cpp")
+                                  ("expectedOutcome" . "ac"))))))))))
+    (should (eq (rbx-profile-run-matches-expectation run) 'unknown))
+    (should (equal (rbx-profile-run-expected-outcome run) "ACCEPTED")))
+  (should-not (rbx-parse-time-profile nil))
+  (should-not (rbx-parse-time-profile '("a" "list"))))
+
+(ert-deftest rbx-time-profile-rows-file-entries-like-rbx ()
+  (let* ((profile (rbx-parse-time-profile rbx-test--time-profile-raw))
+         (rows (rbx-time-profile-rows profile))
+         (base (nth 0 rows))
+         (py (nth 1 rows))
+         (cpp (nth 2 rows))
+         (paths (lambda (row)
+                  (list (mapcar #'rbx-timing-solution-path
+                                (rbx-time-profile-row-solutions row))
+                        (mapcar #'rbx-profile-run-path
+                                (rbx-time-profile-row-runs row))))))
+    (should (= (length rows) 3))
+    (should (eq (rbx-time-profile-row-key base) 'base))
+    (should (eq (rbx-time-profile-row-group base)
+                (rbx-time-profile-base-estimate profile)))
+    (should (= (rbx-time-profile-row-time-limit base) 100))
+    (should (equal (rbx-time-profile-row-key py) 0))
+    (should (= (rbx-time-profile-row-time-limit py) 400))
+    ;; A language in a group is filed there; anything else under base.
+    (should (equal (funcall paths base) '(("sols/main.kt") ("sols/ce.go"))))
+    (should (equal (funcall paths py) '(("sols/slow.py") ("sols/re.py"))))
+    (should (equal (funcall paths cpp)
+                   '(("sols/main.cpp" "sols/tle-slow.cpp")
+                     ("sols/wa-off.cpp"))))))
+
+(ert-deftest rbx-time-profile-rows-without-groups-put-everything-under-base ()
+  (let* ((profile (rbx-parse-time-profile
+                   '(("timeLimit" . 700)
+                     ("solutions" . ((("path" . "a.cpp") ("language" . "cpp")
+                                      ("role" . "lower") ("time" . 3)))))))
+         (rows (rbx-time-profile-rows profile)))
+    (should (= (length rows) 1))
+    (should-not (rbx-time-profile-row-group (car rows)))
+    (should (= (rbx-time-profile-row-time-limit (car rows)) 700))
+    (should (= (length (rbx-time-profile-row-solutions (car rows))) 1))))
+
+(ert-deftest rbx-load-time-profile-reads-the-named-profile ()
+  (rbx-test-with-directory root
+    (rbx-test-write root ".limits/local.yml"
+                    (concat "timeLimit: 100\nrunner: local\nsolutions:\n"
+                            "- {path: sols/main.cpp, language: cpp, "
+                            "role: lower, time: 5}\n"))
+    (let ((package (rbx-package-create
+                    :root (file-name-as-directory root) :build-dir "build")))
+      (rbx-reset-artifact-cache)
+      (should (equal (rbx-time-profile-runner
+                      (rbx-load-time-profile package "local"))
+                     "local"))
+      (should-not (rbx-load-time-profile package "moj")))))
+
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here
