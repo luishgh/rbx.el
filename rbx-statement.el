@@ -13,27 +13,19 @@
 
 ;; Show what each `\VAR{...}' reference in an rbx statement expands to.
 ;;
-;; Unlike the rest of this package, this library is not a pure reader: `rbx
-;; vars' and `rbx vars --render' are read-only by rbx's own design (see
-;; `rbx-program') and exist specifically for a live editor to call, so this
-;; is the one place rbx.el invokes rbx.  The grammar this file scans for and
-;; the CLI protocol it speaks mirror rbx's own VS Code extension
-;; (`vscode/src/rbx/statementVars.ts', `rbx/box/cli/commands/vars_cmd.py').
+;; Unlike most of this package, this library asks rbx rather than reading a
+;; file: `rbx vars' and `rbx vars --render' are read-only by rbx's own design
+;; and exist for a live editor to call, so they are on the allowlist in
+;; `rbx-cli.el'.  The grammar this file scans for and the CLI protocol it speaks
+;; mirror rbx's own VS Code extension (`vscode/src/rbx/statementVars.ts',
+;; `rbx/box/cli/commands/vars_cmd.py').
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)
 (require 'rbx-core)
-
-(defcustom rbx-program "rbx"
-  "Program used to invoke rbx for statement variable hints.
-
-This is the sole exception to this package's normal rule of never invoking
-rbx: `rbx vars' and `rbx vars --render' are read-only and idempotent by
-rbx's own design, safe to call while a package is being edited."
-  :type 'string
-  :group 'rbx)
+(require 'rbx-cli)
 
 (cl-defstruct (rbx-statement-vars-payload
                (:constructor rbx-statement-vars-payload-create))
@@ -196,70 +188,8 @@ unresolvable name, or an unusable filter pipeline -- is silently dropped."
               (push ref refs))))))
     (nreverse refs)))
 
-(defun rbx-statement--program (root)
-  "Return the `rbx-program' that applies to the package at ROOT.
-
-A buffer-local value wins when the current buffer lives under ROOT.
-Otherwise the value is read as ROOT's directory-local variables set it, since
-callers often run from a process sentinel in an unrelated buffer.  The option
-is deliberately not `safe-local-variable': a program path can run arbitrary
-code, so Emacs prompts before honouring a directory-local one."
-  (if (and (local-variable-p 'rbx-program)
-           (file-in-directory-p default-directory root))
-      rbx-program
-    (with-temp-buffer
-      (setq default-directory (file-name-as-directory root))
-      (hack-dir-local-variables-non-file-buffer)
-      rbx-program)))
-
-(defun rbx-statement--run (root args input callback)
-  "Run rbx with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
-
-Resolves `rbx-program' via `rbx-resolve-executable' first; when it cannot
-be found at all, warns once and calls CALLBACK as though the process had
-failed, without attempting a spawn that can only fail.  See
-`rbx-run-process' for CALLBACK's contract otherwise."
-  (let* ((configured (rbx-statement--program root))
-         (program (rbx-resolve-executable configured "rbx" root)))
-    (if (null program)
-        (progn
-          (rbx--warn-once
-           'rbx
-           (format
-            "rbx.el could not find rbx (checked `rbx-program' (%s), PATH, \
-and a login shell); statement variable hints are unavailable until it is \
-installed or `rbx-program' is set."
-            configured))
-          (funcall callback "" "" nil))
-      (rbx-run-process root program args input callback))))
-
 (defconst rbx-statement--invalid (make-symbol "rbx-statement-invalid")
   "Sentinel returned by a payload reader for a value of the wrong shape.")
-
-(defconst rbx-statement--ansi-escape-regexp "\e\\[[0-9;?]*[ -/]*[@-~]"
-  "Regexp matching one ANSI/VT100 escape sequence.")
-
-(defun rbx-statement--parse-leading-object (text)
-  "Return the first JSON object found in TEXT, trying each `{' in turn.
-
-rbx's own noise -- a shell wrapper, a deprecation warning, Rich's
-cursor-restore escape on exit -- can print before or around the payload,
-so only a syntax error moves on to the next brace; a value that parses
-but has the wrong shape is rbx's actual answer and is returned as-is."
-  (let ((stripped (replace-regexp-in-string
-                   rbx-statement--ansi-escape-regexp "" text))
-        (start 0)
-        result)
-    (while (and (not result) (setq start (string-search "{" stripped start)))
-      (condition-case nil
-          (setq result (list (json-parse-string (substring stripped start)
-                                                :object-type 'alist
-                                                :array-type 'list
-                                                :null-object nil
-                                                :false-object :false)))
-        (error nil))
-      (setq start (1+ start)))
-    (car result)))
 
 (defun rbx-statement--read-vars (value)
   "Return VALUE as a flat alist of string to string.
@@ -277,13 +207,13 @@ Returns nil for an empty (but validly shaped) mapping, or
 (defun rbx-statement--parse-vars (stdout)
   "Parse STDOUT as a flat vars payload (`rbx vars --json'), or nil."
   (let ((vars (rbx-statement--read-vars
-               (rbx-statement--parse-leading-object stdout))))
+               (rbx-cli-parse-json-object stdout))))
     (unless (eq vars rbx-statement--invalid)
       (rbx-statement-vars-payload-create :vars vars :groups nil))))
 
 (defun rbx-statement--parse-vars-with-groups (stdout)
   "Parse STDOUT as a grouped vars payload (`rbx vars --json --groups'), or nil."
-  (let ((parsed (rbx-statement--parse-leading-object stdout)))
+  (let ((parsed (rbx-cli-parse-json-object stdout)))
     (when (rbx--wire-mapping-p parsed)
       (let ((raw-groups (rbx--wire-get parsed "groups" rbx-statement--invalid))
             (raw-vars (rbx--wire-get parsed "vars" rbx-statement--invalid)))
@@ -308,7 +238,7 @@ Returns nil for an empty (but validly shaped) mapping, or
 The shape rbx prints for `rbx vars --render' is the same flat map
 `rbx vars --json' prints, keyed by expression rather than by var name."
   (let ((vars (rbx-statement--read-vars
-               (rbx-statement--parse-leading-object stdout))))
+               (rbx-cli-parse-json-object stdout))))
     (unless (eq vars rbx-statement--invalid)
       vars)))
 
@@ -358,7 +288,7 @@ every keystroke."
       ;; malformed; the flat retry also degrades to nil when the package
       ;; itself cannot be read, which is what a broken manifest looks like
       ;; either way.
-      (rbx-statement--run
+      (rbx-cli-run
        (rbx-package-root package) (list "vars" "--json") nil
        (lambda (flat-stdout _flat-stderr flat-exit-code)
          (let ((flat-payload (and flat-exit-code (= flat-exit-code 0)
@@ -379,7 +309,7 @@ could not answer."
      (t
       (setf (rbx-statement--cache-entry-loading entry) t)
       (setf (rbx-statement--cache-entry-waiting entry) (list callback))
-      (rbx-statement--run
+      (rbx-cli-run
        (rbx-package-root package) (list "vars" "--json" "--groups") nil
        (lambda (stdout _stderr exit-code)
          (rbx-statement--finish-load package entry exit-code stdout)))))))
@@ -403,7 +333,7 @@ its rendered text, or nil for one rbx declined to render."
                               expressions)))
     (if (null missing)
         (funcall callback (rbx-statement--rendered-alist table expressions))
-      (rbx-statement--run
+      (rbx-cli-run
        (rbx-package-root package) (list "vars" "--render" "--target" "text")
        (concat (string-join missing "\n") "\n")
        (lambda (stdout _stderr exit-code)
