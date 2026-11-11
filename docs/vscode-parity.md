@@ -151,10 +151,10 @@ mirrors.
 
 | Extension feature | Status | rbx.el |
 | --- | --- | --- |
-| Time profile page for `.limits/<name>.yml`: groups, measured solutions, `--run-all` verdicts, profile tabs | `adapted` | `rbx-time-profile-view` (`T`), read-only and from the profile file alone; profiles are chosen with `completing-read` rather than tabs, and a visited `.limits/*.yml` opens directly ([#12](https://github.com/luishgh/rbx.el/issues/12)) |
-| Statuses at the limit (`thin headroom`, `would get TLE`, ...) and the last-run fallback | `discarded` | Computed by `rbx time-inspect` (D1); not reimplemented, like verdict aggregation |
-| Change a limit on the page (drag, `−`/`+`, revert, inherit checkbox) | `discarded` | Its checks need `rbx time-inspect` (D1); edit the profile as YAML |
-| Stale-estimate banner and **Re-estimate** button | `discarded` | Staleness is rbx's own checksum, and the button starts `rbx time` (D1) |
+| Time profile page for `.limits/<name>.yml`: groups, measured solutions, `--run-all` verdicts, profile tabs | `adapted` | `rbx-time-profile-view` (`T`), read-only, drawn from `rbx time-inspect` (rbx ≥ 2.6.0) and from the profile file alone when rbx cannot answer, saying which; profiles are chosen with `completing-read` rather than tabs, and a visited `.limits/*.yml` opens directly ([#12](https://github.com/luishgh/rbx.el/issues/12), [#15](https://github.com/luishgh/rbx.el/issues/15)) |
+| Statuses at the limit (`thin headroom`, `would get TLE`, ...), effective limits and the last-run fallback | `mapped` | Read from `rbx time-inspect`, never re-derived; re-asked when the profile, `report.yml`, `problem.rbx.yml` or tests change, and on `g` ([#15](https://github.com/luishgh/rbx.el/issues/15)) |
+| Change a limit on the page (drag, `−`/`+`, revert, inherit checkbox) | `discarded` | `time-inspect`'s edit flags would end the view's read-only status; edit the profile as YAML |
+| Stale-estimate banner and **Re-estimate** button | `adapted` | The banner, from `rbx time-inspect`, names the `rbx time -p` command to run in the terminal (D1) |
 | `local` time limit in the status bar | `mapped` | Run view header shows the limits and profile |
 | CodeLens over `timeLimit:`, one per profile | `discarded` | Only an entry point; the proposed view picks profiles with `completing-read` |
 

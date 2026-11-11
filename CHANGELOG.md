@@ -16,6 +16,12 @@ project follows [Semantic Versioning](https://semver.org/).
   found, and the verdicts `rbx time --run-all` recorded at the limit, with
   any judged at an older limit flagged.  It refreshes when the profile
   changes.
+- The time profile view asks `rbx time-inspect` (rbx 2.6.0 or newer) about
+  the profile, as the VS Code extension does (#15): each solution's status
+  at the current limit, each group's warnings, a banner when the estimate
+  is stale, the effective limits per language, and the last run's verdicts
+  when the profile recorded none.  Without a usable rbx it falls back to
+  the profile file and says why.
 - A partially correct testcase shows its share of the points, such as
   `74.06%`, on its run view row and info card (#9), and scores are coloured
   green when full, yellow when partial and red at zero, as `rbx run` does.
@@ -77,6 +83,10 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- rbx.el may call an rbx command only when it writes nothing, prints
+  structured output and is meant for an editor to call; `rbx vars` and
+  `rbx time-inspect` are the two that do.  `rbx-cli.el` holds the
+  allowlist, and `rbx-program` now lives there.
 - Rename the project from `rbx-for-emacs` to `rbx.el`.
 - Convert YAML artifacts to compact JSON with `yq` and parse them using
   Emacs's native JSON parser instead of `yaml.el`.

@@ -8,6 +8,7 @@
 
 (require 'rbx-ui)
 (require 'test-helper)
+(require 'rbx-time-inspect-fixtures)
 
 (ert-deftest rbx-format-outcomes-and-measurements-match-rbx ()
   (should (equal (rbx-outcome-short-name "wrong-answer") "WA"))
@@ -1889,17 +1890,37 @@ EVALUATED (or both when it is `all').  A report is written only when REPORT-EXTR
   (rbx-reset-artifact-cache)
   (rbx-package-create :root (file-name-as-directory root) :build-dir "build"))
 
+(defvar rbx-ui-test--inspect-requests nil
+  "The (ARGS INPUT CALLBACK) of each `rbx-cli-run' call, newest first.")
+
+(defmacro rbx-ui-test--with-rbx (answer &rest body)
+  "Run BODY with `rbx-cli-run' answering ANSWER instead of a real rbx.
+ANSWER is nil when no rbx is installed, `:pending' to hold every reply
+\(see `rbx-ui-test--inspect-requests'), or (STDOUT STDERR EXIT-CODE)."
+  (declare (indent 1))
+  `(let ((rbx-ui-test--inspect-requests nil)
+         (answer ,answer))
+     (cl-letf (((symbol-function 'rbx-cli-executable)
+                (lambda (_root) (and answer "/usr/bin/rbx")))
+               ((symbol-function 'rbx-cli-run)
+                (lambda (_root args input callback &rest _)
+                  (push (list args input callback) rbx-ui-test--inspect-requests)
+                  (unless (eq answer :pending)
+                    (apply callback answer)))))
+       ,@body)))
+
 (defmacro rbx-ui-test--with-time-profile-view (name &rest body)
   "Render the time profile NAME of the fixture package, then run BODY."
   (declare (indent 1))
   `(rbx-test-with-directory root
      (let ((package (rbx-ui-test--time-profile-package root)))
-       (with-temp-buffer
-         (rbx-view-mode)
-         (let ((inhibit-read-only t))
-           (rbx--insert-time-profile-view package ,name))
-         (goto-char (point-min))
-         ,@body))))
+       (rbx-ui-test--with-rbx nil
+         (with-temp-buffer
+           (rbx-view-mode)
+           (let ((inhibit-read-only t))
+             (rbx--insert-time-profile-view package ,name))
+           (goto-char (point-min))
+           ,@body)))))
 
 (defun rbx-ui-test--line-matching (regexp)
   "Return the text of the first line matching REGEXP, or nil."
@@ -2037,17 +2058,275 @@ EVALUATED (or both when it is `all').  A report is written only when REPORT-EXTR
     (let ((package (rbx-ui-test--time-profile-package root))
           (rbx-refresh-delay 0))
       (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\nrunner: moj\n")
-      (let ((buffer
-             (with-temp-buffer
-               (setq default-directory (file-name-as-directory root)
-                     buffer-file-name (expand-file-name ".limits/moj.yml" root))
-               (rbx-time-profile-view package))))
-        (unwind-protect
-            (with-current-buffer buffer
-              (should (eq rbx--view 'time-profile))
-              (should (equal rbx--time-profile "moj"))
-              (should (string-match-p "runner moj" (buffer-string))))
-          (kill-buffer buffer))))))
+      (rbx-ui-test--with-rbx nil
+        (let ((buffer
+               (with-temp-buffer
+                 (setq default-directory (file-name-as-directory root)
+                       buffer-file-name (expand-file-name ".limits/moj.yml" root))
+                 (rbx-time-profile-view package))))
+          (unwind-protect
+              (with-current-buffer buffer
+                (should (eq rbx--view 'time-profile))
+                (should (equal rbx--time-profile "moj"))
+                (should (string-match-p "runner moj" (buffer-string))))
+            (kill-buffer buffer)))))))
+
+;;;; Time profiles checked by rbx time-inspect
+
+(defun rbx-ui-test--inspected-text (package name)
+  "Draw PACKAGE's profile NAME twice, so a synchronous reply is shown."
+  (let ((inhibit-read-only t))
+    (rbx--insert-time-profile-view package name)
+    (erase-buffer)
+    (rbx--insert-time-profile-view package name)
+    (goto-char (point-min))))
+
+(defmacro rbx-ui-test--with-inspected-view (json &rest body)
+  "Render the fixture profile with rbx answering JSON, then run BODY."
+  (declare (indent 1))
+  `(rbx-test-with-directory root
+     (let ((package (rbx-ui-test--time-profile-package root)))
+       (rbx-ui-test--with-rbx (list ,json "" 0)
+         (with-temp-buffer
+           (rbx-view-mode)
+           (rbx-ui-test--inspected-text package "local")
+           ,@body)))))
+
+(defun rbx-ui-test--face-at-match (group)
+  "Return the font-lock faces at the start of match GROUP, as a list."
+  (ensure-list (get-text-property (match-beginning group) 'font-lock-face)))
+
+(ert-deftest rbx-time-profile-view-asks-rbx-time-inspect-about-the-saved-file ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-saved
+    (should (= (length rbx-ui-test--inspect-requests) 1))
+    (pcase-let ((`(,args ,input ,_) (car rbx-ui-test--inspect-requests)))
+      (should (equal args '("time-inspect" "-p" "local" "--stdin")))
+      (should (equal input rbx-ui-test--time-profile)))
+    (should (rbx-ui-test--line-matching "checked by rbx time-inspect"))
+    ;; The header still comes from the profile itself.
+    (should (rbx-ui-test--line-matching "runner local"))))
+
+(ert-deftest rbx-time-profile-view-shows-rbx-rows-and-statuses ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-saved
+    (should (string-match-p "100 ms.*estimated" (rbx-ui-test--line-matching "^Base ")))
+    (should (string-match-p "300 ms.*×3 of cpp" (rbx-ui-test--line-matching "^py ")))
+    (should (string-match-p "100 ms.*leftover" (rbx-ui-test--line-matching "^cpp, c ")))
+    (should (string-match-p "accepted +6 ms +ok"
+                            (rbx-ui-test--line-matching "sols/main\\.cpp  ")))
+    (should (string-match-p "too slow +>150 ms +ok"
+                            (rbx-ui-test--line-matching "sols/tle-spin\\.cpp")))
+    ;; The file-based notes are gone: rbx's statuses replace them.
+    (should-not (rbx-ui-test--line-matching "timed out\\|finished in time"))
+    (should-not (rbx-ui-test--line-matching "⚠"))
+    ;; Coloured by what rbx says problem.rbx.yml declares.
+    (re-search-forward "^  \\(sols/tle-spin\\.cpp\\)")
+    (should (memq 'rbx-expected-slow (rbx-ui-test--face-at-match 1)))))
+
+(ert-deftest rbx-time-profile-view-shows-rbx-checks-at-a-hand-edited-limit ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-edited
+    (should (string-match-p "5 ms.*edited, estimated 100 ms"
+                            (rbx-ui-test--line-matching "^cpp, c ")))
+    (re-search-forward "^cpp, c ")
+    (should (re-search-forward
+             "⚠ sols/main\\.cpp would get TLE: the slowest accepted solution takes 6 ms, over this 5 ms limit"
+             nil t))
+    (should (memq 'rbx-mismatch (rbx-ui-test--face-at-match 0)))
+    (re-search-forward "sols/main\\.cpp +accepted +6 ms +\\(would get TLE\\)")
+    (should (memq 'rbx-mismatch (rbx-ui-test--face-at-match 1)))))
+
+(ert-deftest rbx-time-profile-view-words-each-group-warning ()
+  (rbx-ui-test--with-inspected-view
+      (string-replace
+       "\"violating\":[],\"confirmed\":[\"sols/tle-spin.cpp\"],\"unverified\":[],\"ok\":false,\"belowMin\":true,\"breaksUpper\":false,\"rejectsOwnSolutions\":true"
+       "\"violating\":[{\"value\":4,\"solution\":\"sols/a.cpp\"},{\"value\":6,\"solution\":\"sols/b.cpp\"}],\"confirmed\":[],\"unverified\":[\"sols/c.cpp\"],\"ok\":false,\"belowMin\":true,\"breaksUpper\":true,\"rejectsOwnSolutions\":false"
+       rbx-time-inspect-fixture-edited)
+    (re-search-forward "^cpp, c ")
+    (should (re-search-forward "⚠ headroom < ×2: sols/main\\.cpp (6 ms) needs a limit ≥ 12 ms" nil t))
+    (should (re-search-forward "⚠ sols/a\\.cpp would be accepted: finishes at 4 ms, within this 5 ms limit" nil t))
+    (should (re-search-forward "⚠ sols/b\\.cpp: TLE margin < ×1\\.5: finishes at 6 ms, before 8 ms" nil t))
+    (should (re-search-forward "⚠ 1 slow unverified: sols/c\\.cpp, only seen running below 8 ms" nil t))))
+
+(ert-deftest rbx-time-profile-view-warns-of-an-upper-bound-without-a-finish ()
+  (rbx-ui-test--with-inspected-view
+      (string-replace "\"max_ms\":null,\"max_solution\":null,\"slowest_ms\":6,\"violating\":[],\"confirmed\":[\"sols/tle-spin.cpp\"],\"unverified\":[],\"ok\":true"
+                      "\"max_ms\":50,\"max_solution\":null,\"slowest_ms\":6,\"violating\":[],\"confirmed\":[\"sols/tle-spin.cpp\"],\"unverified\":[],\"ok\":false"
+                      rbx-time-inspect-fixture-saved)
+    (should (rbx-ui-test--line-matching
+             "⚠ TLE margin < ×1\\.5: a slow solution was only shown to run past TL × 1\\.5 for limits ≤ 50 ms"))))
+
+(ert-deftest rbx-time-profile-view-shows-a-stale-banner ()
+  (rbx-ui-test--with-inspected-view
+      (string-replace "\"stale\":null" "\"stale\":\"solutions\""
+                      rbx-time-inspect-fixture-saved)
+    (re-search-forward "\\(Solutions changed since this profile was estimated\\)\\.  Run `rbx time -p local' in your terminal to re-estimate\\.")
+    (should (memq 'rbx-warning (rbx-ui-test--face-at-match 1)))))
+
+(ert-deftest rbx-time-profile-view-shows-the-effective-limits ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-saved
+    (should (rbx-ui-test--line-matching "judged against  cpp 100 ms · py 300 ms"))
+    (should (rbx-ui-test--line-matching
+             "problem\\.rbx\\.yml  1000 ms · 256 MiB · output 4 MiB"))))
+
+(ert-deftest rbx-time-profile-view-keeps-rbx-run-channels-separate ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-saved
+    (should (rbx-ui-test--line-matching "Judged at the limit (rbx time --run-all)"))
+    (should (rbx-ui-test--line-matching
+             "^ *✓ sols/wa-off\\.cpp  declared WA → got WA  5 ms"))))
+
+(ert-deftest rbx-time-profile-view-names-the-last-run-it-read-verdicts-from ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-last-run
+    (should-not (rbx-ui-test--line-matching "rbx time --run-all"))
+    (should (rbx-ui-test--line-matching
+             "From the last rbx run · runner local · ended 2026-11-1[01] "))
+    (should (rbx-ui-test--line-matching "✓ sols/wa-off\\.cpp  declared WA → got WA"))))
+
+(ert-deftest rbx-time-profile-view-flags-a-last-run-under-another-profile ()
+  (rbx-ui-test--with-inspected-view
+      (string-replace
+       "\"profiles\":[\"local\"],\"runner\":\"local\",\"finished\":true,\"endedAt\":\"2026-11-11T10:37:09-03:00\""
+       "\"profiles\":[\"moj\"],\"runner\":\"local\",\"finished\":false,\"endedAt\":null"
+       rbx-time-inspect-fixture-last-run)
+    (let ((heading (rbx-ui-test--line-matching "From the last rbx run")))
+      (should (string-match-p "still running" heading))
+      (should (string-match-p "under moj" heading)))))
+
+(ert-deftest rbx-time-profile-view-falls-back-without-rbx ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-ui-test--with-rbx nil
+        (with-temp-buffer
+          (rbx-view-mode)
+          (rbx-ui-test--inspected-text package "local")
+          (should (rbx-ui-test--line-matching
+                   "read from \\.limits/local\\.yml: rbx was not found"))
+          ;; The file reader's own view.
+          (should (rbx-ui-test--line-matching "sols/tle-slow\\.cpp.*timed out"))
+          (should-not rbx-ui-test--inspect-requests))))))
+
+(ert-deftest rbx-time-profile-view-falls-back-on-an-older-rbx ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-ui-test--with-rbx (list "" "Usage: rbx [OPTIONS]\nError: No such command 'time-inspect'.\n" 2)
+        (with-temp-buffer
+          (rbx-view-mode)
+          (rbx-ui-test--inspected-text package "local")
+          (let ((line (rbx-ui-test--line-matching "read from \\.limits/local\\.yml")))
+            (should (string-match-p "exit 2" line))
+            (should (string-match-p "needs rbx 2\\.6\\.0" line))
+            (should (string-match-p "No such command 'time-inspect'" line)))
+          (should (rbx-ui-test--line-matching "sols/tle-slow\\.cpp.*timed out")))))))
+
+(ert-deftest rbx-time-profile-view-falls-back-on-another-version ()
+  (rbx-ui-test--with-inspected-view
+      (string-replace "\"version\":1," "\"version\":2," rbx-time-inspect-fixture-saved)
+    (should (rbx-ui-test--line-matching
+             "read from \\.limits/local\\.yml: rbx time-inspect speaks version 2; rbx\\.el reads version 1"))))
+
+(ert-deftest rbx-time-profile-view-falls-back-on-unreadable-output ()
+  (rbx-ui-test--with-inspected-view "Traceback (most recent call last):\n"
+    (should (rbx-ui-test--line-matching
+             "read from \\.limits/local\\.yml: rbx time-inspect printed nothing rbx\\.el can read"))))
+
+(ert-deftest rbx-time-profile-view-shows-rbx-errors-about-the-profile ()
+  (rbx-ui-test--with-inspected-view
+      "{\"version\":1,\"profile\":\"local\",\"errors\":[\"A limits profile must be a YAML mapping.\"]}"
+    (re-search-forward "\\(rbx could not read this profile: A limits profile must be a YAML mapping\\.\\)")
+    (should (memq 'rbx-warning (rbx-ui-test--face-at-match 1)))
+    (should (rbx-ui-test--line-matching "sols/tle-slow\\.cpp.*timed out"))))
+
+(ert-deftest rbx-time-profile-view-says-it-is-checking-while-rbx-answers ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-ui-test--with-rbx :pending
+        (with-temp-buffer
+          (rbx-view-mode)
+          (let ((inhibit-read-only t))
+            (rbx--insert-time-profile-view package "local"))
+          (should (string-match-p "checking with rbx time-inspect…" (buffer-string)))
+          (should (string-match-p "sols/tle-slow\\.cpp.*timed out" (buffer-string))))))))
+
+(ert-deftest rbx-time-profile-view-does-not-ask-again-on-a-redraw ()
+  (rbx-ui-test--with-inspected-view rbx-time-inspect-fixture-saved
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (rbx--insert-time-profile-view package "local"))
+    (should (= (length rbx-ui-test--inspect-requests) 1))))
+
+(ert-deftest rbx-time-profile-view-coalesces-requests-while-one-is-pending ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-ui-test--with-rbx :pending
+        (with-temp-buffer
+          (rbx-view-mode)
+          (let ((inhibit-read-only t))
+            (rbx--insert-time-profile-view package "local")
+            (rbx--time-inspect-invalidate)
+            (rbx--insert-time-profile-view package "local")
+            (rbx--time-inspect-invalidate)
+            (rbx--insert-time-profile-view package "local"))
+          (should (= (length rbx-ui-test--inspect-requests) 1))
+          ;; The reply lands, and the changes made meanwhile get one more ask.
+          (funcall (nth 2 (car rbx-ui-test--inspect-requests))
+                   rbx-time-inspect-fixture-saved "" 0)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (rbx--insert-time-profile-view package "local")
+            (should (string-match-p "checked by rbx time-inspect" (buffer-string)))
+            (erase-buffer)
+            (rbx--insert-time-profile-view package "local"))
+          (should (= (length rbx-ui-test--inspect-requests) 2)))))))
+
+(ert-deftest rbx-time-profile-view-ignores-a-reply-for-another-profile ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-test-write root ".limits/moj.yml" "timeLimit: 1000\n")
+      (rbx-reset-artifact-cache)
+      (rbx-ui-test--with-rbx :pending
+        (with-temp-buffer
+          (rbx-view-mode)
+          (let ((inhibit-read-only t))
+            (rbx--insert-time-profile-view package "local")
+            (erase-buffer)
+            (rbx--insert-time-profile-view package "moj"))
+          (funcall (nth 2 (cadr rbx-ui-test--inspect-requests))
+                   rbx-time-inspect-fixture-saved "" 0)
+          (let ((inhibit-read-only t))
+            (erase-buffer)
+            (rbx--insert-time-profile-view package "moj"))
+          (should (string-match-p "checking with rbx time-inspect…" (buffer-string))))))))
+
+(ert-deftest rbx-time-profile-view-ignores-a-reply-for-a-killed-buffer ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root)))
+      (rbx-ui-test--with-rbx :pending
+        (with-temp-buffer
+          (rbx-view-mode)
+          (let ((inhibit-read-only t))
+            (rbx--insert-time-profile-view package "local")))
+        (funcall (nth 2 (car rbx-ui-test--inspect-requests))
+                 rbx-time-inspect-fixture-saved "" 0)))))
+
+(ert-deftest rbx-time-profile-view-asks-again-when-files-change-or-on-g ()
+  (rbx-test-with-directory root
+    (let ((package (rbx-ui-test--time-profile-package root))
+          (rbx-refresh-delay 0))
+      (rbx-ui-test--with-rbx (list rbx-time-inspect-fixture-saved "" 0)
+        (let ((buffer (rbx-time-profile-view package "local")))
+          (unwind-protect
+              (with-current-buffer buffer
+                (should (= (length rbx-ui-test--inspect-requests) 1))
+                ;; The redraw the reply schedules does not ask again.
+                (rbx-test-wait (lambda () nil) 0.1)
+                (should (string-match-p "checked by rbx time-inspect" (buffer-string)))
+                (rbx-refresh)
+                (should (= (length rbx-ui-test--inspect-requests) 1))
+                ;; An artifact change does.
+                (funcall (rbx-watcher-callback rbx--watcher))
+                (should (= (length rbx-ui-test--inspect-requests) 2))
+                ;; And so does `g', since solution sources are not watched.
+                (call-interactively #'rbx-refresh)
+                (should (= (length rbx-ui-test--inspect-requests) 3)))
+            (kill-buffer buffer)))))))
 
 (provide 'rbx-ui-test)
 ;;; rbx-ui-test.el ends here

@@ -80,6 +80,11 @@ code, so Emacs prompts before honouring a directory-local one."
       (hack-dir-local-variables-non-file-buffer)
       rbx-program)))
 
+(defun rbx-cli-executable (root)
+  "Return the rbx program to run for the package at ROOT, or nil.
+Resolution is cached; see `rbx-resolve-executable'."
+  (rbx-resolve-executable (rbx-cli--program root) "rbx" root))
+
 (defun rbx-cli-run (root args input callback &optional timeout what)
   "Run rbx with ARGS in ROOT, writing INPUT to stdin, then call CALLBACK.
 
@@ -91,8 +96,7 @@ failed.  WHAT names the feature that needs rbx, for that warning.
 TIMEOUT and CALLBACK are as for `rbx-run-process'."
   (when-let* ((refusal (rbx-cli--refusal args)))
     (error "%s" refusal))
-  (let* ((configured (rbx-cli--program root))
-         (program (rbx-resolve-executable configured "rbx" root)))
+  (let ((program (rbx-cli-executable root)))
     (if (null program)
         (progn
           (rbx--warn-once
@@ -101,7 +105,7 @@ TIMEOUT and CALLBACK are as for `rbx-run-process'."
             "rbx.el could not find rbx (checked `rbx-program' (%s), PATH, \
 and a login shell); %s are unavailable until it is installed or \
 `rbx-program' is set."
-            configured (or what "statement variable hints")))
+            (rbx-cli--program root) (or what "statement variable hints")))
           (funcall callback "" "" nil))
       (rbx-run-process root program args input callback timeout))))
 

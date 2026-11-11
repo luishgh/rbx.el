@@ -368,17 +368,24 @@ Statement and stress failures are findings rbx publishes, not errors."
         (should (string-match-p "wa-bad\\.cpp" (buffer-string)))
         (should (string-match-p "WA" (buffer-string)))))))
 
+(defmacro rbx-integration-test-with-timed-package (binding &rest body)
+  "Scaffold a package into BINDING and estimate its `local' profile.
+Adds a wrong solution the estimate does not need, so `rbx time --run-all'
+judges it at the limit."
+  (declare (indent 1) (debug (symbolp body)))
+  `(rbx-integration-test-with-package ,binding
+     (rbx-test-write
+      ,binding "sols/wa-off.cpp"
+      (concat "#include <bits/stdc++.h>\n"
+              "int main() { long long a, b; std::cin >> a >> b;\n"
+              "  std::cout << a + b + 1 << std::endl; }\n"))
+     (rbx-integration-test--run ,binding "time" "--auto" "--run-all")
+     (rbx-reset-artifact-cache)
+     ,@body))
+
 (ert-deftest rbx-integration-time-profile-round-trip ()
   (skip-unless (file-executable-p rbx-integration-test--program))
-  (rbx-integration-test-with-package demo
-    ;; Not needed by the estimate, so `--run-all' judges it at the limit.
-    (rbx-test-write
-     demo "sols/wa-off.cpp"
-     (concat "#include <bits/stdc++.h>\n"
-             "int main() { long long a, b; std::cin >> a >> b;\n"
-             "  std::cout << a + b + 1 << std::endl; }\n"))
-    (rbx-integration-test--run demo "time" "--auto" "--run-all")
-    (rbx-reset-artifact-cache)
+  (rbx-integration-test-with-timed-package demo
     (let* ((package (rbx-find-package demo))
            (profile (rbx-load-time-profile package "local")))
       (should (member "local" (rbx-time-profile-names package)))
@@ -406,11 +413,79 @@ Statement and stress failures are findings rbx publishes, not errors."
                          (cdr (rbx-time-profile-rows profile)))))
       (with-temp-buffer
         (rbx-view-mode)
+        ;; The file reader's view, whatever rbx is installed here.
         (let ((inhibit-read-only t))
-          (rbx--insert-time-profile-view package "local"))
+          (cl-letf (((symbol-function 'rbx-cli-executable) #'ignore))
+            (rbx--insert-time-profile-view package "local")))
         (should (string-match-p "sols/main\\.cpp +accepted" (buffer-string)))
         (should (string-match-p "✓ sols/wa-off\\.cpp  declared WA → got WA"
                                 (buffer-string)))))))
+
+(defun rbx-integration-test--time-inspect-available-p (directory)
+  "Return non-nil when the real rbx in DIRECTORY offers `time-inspect'.
+It first shipped in rbx 2.6.0."
+  (condition-case nil
+      (progn (rbx-integration-test--run directory "time-inspect" "--help") t)
+    (error nil)))
+
+(defun rbx-integration-test--time-inspect (package)
+  "Return what `rbx-time-inspect' answers about PACKAGE's `local' profile."
+  (let ((rbx-program rbx-integration-test--program)
+        (answer nil))
+    (rbx-reset-executables)
+    (rbx-time-inspect package "local" (lambda (result) (setq answer result)))
+    (should (rbx-test-wait (lambda () answer) 60))
+    answer))
+
+(ert-deftest rbx-integration-time-inspect-round-trip ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-timed-package demo
+    (skip-unless (rbx-integration-test--time-inspect-available-p demo))
+    (let* ((package (rbx-find-package demo))
+           (answer (rbx-integration-test--time-inspect package))
+           (inspection (cdr answer)))
+      (should (eq (car answer) 'ok))
+      (should (equal (rbx-time-inspection-profile inspection) "local"))
+      (should-not (rbx-time-inspection-stale inspection))
+      (should (eq (rbx-time-inspection-runs-source inspection) 'profile))
+      (should (rbx-time-inspection-effective inspection))
+      (let* ((cpp (cl-find-if (lambda (row)
+                                (and (rbx-time-inspect-row-group row)
+                                     (member "cpp" (rbx-timing-group-languages
+                                                    (rbx-time-inspect-row-group row)))))
+                              (rbx-time-inspection-rows inspection)))
+             (main (cl-find "sols/main.cpp" (rbx-time-inspect-row-solutions cpp)
+                            :key #'rbx-time-solution-check-path :test #'equal)))
+        (should (rbx-time-group-check-ok (rbx-time-inspect-row-check cpp)))
+        (should (eq (rbx-time-solution-check-role main) 'lower))
+        (should (eq (rbx-time-solution-check-status main) 'ok))
+        (should (equal (rbx-time-solution-check-expected-outcome main) "ACCEPTED"))
+        (should (equal (mapcar #'rbx-profile-run-path (rbx-time-inspect-row-runs cpp))
+                       '("sols/wa-off.cpp")))))))
+
+(defun rbx-integration-test--snapshot (directory)
+  "Return every file's SHA-256 and every entry's mtime under DIRECTORY."
+  (mapcar (lambda (path)
+            (list (file-relative-name path directory)
+                  (file-attribute-modification-time (file-attributes path))
+                  (unless (file-directory-p path)
+                    (with-temp-buffer
+                      (set-buffer-multibyte nil)
+                      (insert-file-contents-literally path)
+                      (secure-hash 'sha256 (current-buffer))))))
+          (sort (directory-files-recursively directory "" t) #'string<)))
+
+(ert-deftest rbx-integration-time-inspect-writes-nothing ()
+  (skip-unless (file-executable-p rbx-integration-test--program))
+  (rbx-integration-test-with-timed-package demo
+    (skip-unless (rbx-integration-test--time-inspect-available-p demo))
+    (let ((package (rbx-find-package demo))
+          (before (rbx-integration-test--snapshot demo)))
+      ;; Let a write land on a different mtime than the files already have.
+      (sleep-for 1.1)
+      (should (eq (car (rbx-integration-test--time-inspect package)) 'ok))
+      (rbx-integration-test--run demo "time-inspect" "-p" "local")
+      (should (equal (rbx-integration-test--snapshot demo) before)))))
 
 (ert-deftest rbx-integration-statement-report-round-trip ()
   (skip-unless (file-executable-p rbx-integration-test--program))
