@@ -35,15 +35,20 @@ calls: `rbx vars` and `rbx vars --render` for statement variable hints, and
   counterexample with every solution's verdict, time and memory.  `i`, `a`,
   `o` and `2` open a finding's input, answer, and a solution's output and
   stderr; `w` copies the generator call that reproduces it.
-- Time profiles: `M-x rbx-time-profile-view` (`T` in the Transient) reads a
-  limits profile, `.limits/<name>.yml`, as `rbx time` wrote it.  It shows
-  each language group's limit and how it was reached (estimated, or `×3 of
-  cpp`), a limit edited by hand beside its estimate, the solutions the
-  estimate measured and what checking the slow ones found, and the verdicts
-  `rbx time --run-all` recorded, with declared and actual outcomes kept
-  apart.  Run from a `.limits/*.yml` buffer, it opens that profile.  The
-  extension's derived statuses (`thin headroom`, `would get TLE`) come from
-  `rbx time-inspect` and are not shown; edit limits in the YAML itself.
+- Time profiles: `M-x rbx-time-profile-view` (`T` in the Transient) shows a
+  limits profile, `.limits/<name>.yml`, as `rbx time` wrote it.  It asks
+  `rbx time-inspect` (rbx 2.6.0 or newer) how each limit fares, as the
+  extension does: each language group's limit and how it was reached, a
+  limit edited by hand beside its estimate, warnings such as an accepted
+  solution that would now get TLE, each measured solution's status (`ok`,
+  `thin headroom`, `would get TLE`, ...), a banner when the solutions or
+  tests changed since the estimate, the limits each language is judged
+  against, and the verdicts `rbx time --run-all` (or else the last `rbx
+  run`) recorded, with declared and actual outcomes kept apart.  It asks
+  again when the profile, `report.yml`, `problem.rbx.yml` or the tests
+  change, and on `g`.  Without a usable rbx it reads the profile file alone
+  and says why.  Run from a `.limits/*.yml` buffer, it opens that profile.
+  Edit limits in the YAML itself.
 - Statement preview: `M-x rbx-preview-statement` opens a built statement
   PDF (picked from `.rbx/statements/report.yml`) with auto-revert, and
   the last build's LaTeX/template errors show up as Flymake diagnostics in
