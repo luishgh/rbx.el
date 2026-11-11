@@ -7,7 +7,9 @@
 ;;; Code:
 
 (require 'rbx-model)
+(require 'rbx-cli)
 (require 'test-helper)
+(require 'rbx-time-inspect-fixtures)
 
 (defconst rbx-test--entry
   '(("group_entry" . (("group" . "main") ("index" . 3)))
@@ -976,6 +978,146 @@ and the presentation-only checks rbx records.")
                       (rbx-load-time-profile package "local"))
                      "local"))
       (should-not (rbx-load-time-profile package "moj")))))
+
+;;;; rbx time-inspect
+
+(defun rbx-test--inspection (json)
+  "Parse JSON, as `rbx time-inspect' prints it, into an inspection."
+  (rbx-parse-time-inspection (rbx-cli-parse-json-object json)))
+
+(defun rbx-test--inspect-row (inspection key)
+  "Return INSPECTION's row with KEY."
+  (cl-find key (rbx-time-inspection-rows inspection)
+           :key #'rbx-time-inspect-row-key :test #'equal))
+
+(ert-deftest rbx-parse-time-inspection-reads-the-header ()
+  (let* ((inspection (rbx-test--inspection rbx-time-inspect-fixture-saved))
+         (effective (rbx-time-inspection-effective inspection))
+         (last-run (rbx-time-inspection-last-run inspection)))
+    (should (equal (rbx-time-inspection-profile inspection) "local"))
+    (should-not (rbx-time-inspection-errors inspection))
+    (should-not (rbx-time-inspection-inherit inspection))
+    (should (= (rbx-time-inspection-time-limit inspection) 100))
+    (should-not (rbx-time-inspection-memory-limit inspection))
+    (should (= (rbx-timing-multipliers-ac-to-time-limit
+                (rbx-time-inspection-multipliers inspection))
+               2.0))
+    (should (eq (rbx-time-inspection-runs-source inspection) 'profile))
+    (should-not (rbx-time-inspection-stale inspection))
+    (should (equal (rbx-time-last-run-profiles last-run) '("local")))
+    (should (equal (rbx-time-last-run-runner last-run) "local"))
+    (should (rbx-time-last-run-finished last-run))
+    (should (equal (rbx-time-last-run-ended-at last-run)
+                   "2026-11-11T10:37:09-03:00"))
+    (should (= (rbx-time-effective-limits-time-limit effective) 100))
+    (should (= (rbx-time-effective-limits-memory-limit effective) 256))
+    (should (= (rbx-time-effective-limits-output-limit effective) 4096))
+    (should (equal (rbx-time-effective-limits-languages effective)
+                   '(("cpp" 100 256) ("py" 300 256))))
+    (should (equal (rbx-time-effective-limits-package effective)
+                   '(1000 256 4096)))))
+
+(ert-deftest rbx-parse-time-inspection-reads-rows-and-checks ()
+  (let* ((inspection (rbx-test--inspection rbx-time-inspect-fixture-saved))
+         (base (rbx-test--inspect-row inspection 'base))
+         (py (rbx-test--inspect-row inspection 0))
+         (cpp (rbx-test--inspect-row inspection 2))
+         (check (rbx-time-inspect-row-check cpp)))
+    (should (equal (mapcar #'rbx-time-inspect-row-key
+                           (rbx-time-inspection-rows inspection))
+                   '(base 0 2)))
+    (should (equal (rbx-timing-group-origin (rbx-time-inspect-row-group py))
+                   "multiplier"))
+    (should (equal (rbx-timing-group-languages (rbx-time-inspect-row-group cpp))
+                   '("cpp" "c")))
+    (should (= (rbx-time-inspect-row-time-limit cpp) 100))
+    (should-not (rbx-time-inspect-row-solutions base))
+    (should (= (rbx-time-group-check-time-limit check) 100))
+    (should (= (rbx-time-group-check-min check) 12))
+    (should (equal (rbx-time-group-check-min-solution check) "sols/main.cpp"))
+    (should (= (rbx-time-group-check-slowest check) 6))
+    (should-not (rbx-time-group-check-max check))
+    (should (equal (rbx-time-group-check-confirmed check) '("sols/tle-spin.cpp")))
+    (should (rbx-time-group-check-ok check))
+    (should-not (rbx-time-group-check-below-min check))
+    (should-not (rbx-time-group-check-rejects-own-solutions check))))
+
+(ert-deftest rbx-parse-time-inspection-reads-solution-checks-and-runs ()
+  (let* ((inspection (rbx-test--inspection rbx-time-inspect-fixture-edited))
+         (cpp (rbx-test--inspect-row inspection 2))
+         (check (rbx-time-inspect-row-check cpp))
+         (main (car (rbx-time-inspect-row-solutions cpp)))
+         (slow (cadr (rbx-time-inspect-row-solutions cpp)))
+         (run (car (rbx-time-inspect-row-runs cpp))))
+    (should (= (rbx-time-group-check-estimated check) 100))
+    (should (rbx-time-group-check-below-min check))
+    (should (rbx-time-group-check-rejects-own-solutions check))
+    (should-not (rbx-time-group-check-ok check))
+    (should (equal (rbx-time-solution-check-path main) "sols/main.cpp"))
+    (should (eq (rbx-time-solution-check-role main) 'lower))
+    (should (= (rbx-time-solution-check-time main) 6))
+    (should (eq (rbx-time-solution-check-status main) 'fails))
+    (should (equal (rbx-time-solution-check-expected-outcome main) "ACCEPTED"))
+    (should (eq (rbx-time-solution-check-role slow) 'upper))
+    (should-not (rbx-time-solution-check-time slow))
+    (should (= (rbx-time-solution-check-survived-at slow) 150))
+    (should (= (rbx-time-solution-check-max slow) 100))
+    (should (equal (rbx-time-solution-check-expected-outcome slow)
+                   "TIME_LIMIT_EXCEEDED"))
+    (should (equal (rbx-profile-run-path run) "sols/wa-off.cpp"))
+    (should (equal (rbx-profile-run-expected-outcome run) "WRONG_ANSWER"))
+    (should (equal (rbx-profile-run-outcome run) "wrong-answer"))
+    (should (eq (rbx-profile-run-matches-expectation run) t))
+    (should (rbx-profile-run-complete run))
+    (should (= (rbx-profile-run-time run) 5))
+    (should (= (rbx-profile-run-time-limit run) 100))))
+
+(ert-deftest rbx-parse-time-inspection-reads-a-last-run-fallback ()
+  (let ((inspection (rbx-test--inspection rbx-time-inspect-fixture-last-run)))
+    (should (eq (rbx-time-inspection-runs-source inspection) 'last-run))
+    (should (rbx-time-inspect-row-runs (rbx-test--inspect-row inspection 2)))))
+
+(ert-deftest rbx-parse-time-inspection-reads-staleness ()
+  (let ((inspection (rbx-test--inspection
+                     (string-replace "\"stale\":null" "\"stale\":\"solutions\""
+                                     rbx-time-inspect-fixture-saved))))
+    (should (eq (rbx-time-inspection-stale inspection) 'solutions))))
+
+(ert-deftest rbx-parse-time-inspection-rejects-another-version ()
+  (should-not (rbx-test--inspection
+               (string-replace "\"version\":1," "\"version\":2,"
+                               rbx-time-inspect-fixture-saved)))
+  (should-not (rbx-test--inspection "{\"profile\":\"local\"}"))
+  (should-not (rbx-parse-time-inspection nil))
+  (should-not (rbx-parse-time-inspection '(1 2 3))))
+
+(ert-deftest rbx-parse-time-inspection-keeps-rbx-errors ()
+  (let ((inspection
+         (rbx-test--inspection
+          (concat "{\"version\":1,\"profile\":\"local\",\"path\":\".limits/local.yml\","
+                  "\"errors\":[\"A limits profile must be a YAML mapping.\"]}"))))
+    (should (equal (rbx-time-inspection-errors inspection)
+                   '("A limits profile must be a YAML mapping.")))
+    (should-not (rbx-time-inspection-rows inspection))))
+
+(ert-deftest rbx-parse-time-inspection-tolerates-missing-fields ()
+  (let ((inspection
+         (rbx-test--inspection
+          (concat "{\"version\":1,\"rows\":[{\"key\":\"base\",\"report\":null,"
+                  "\"timeLimit\":null,\"solutions\":[{\"status\":\"ok\"},"
+                  "{\"path\":\"a.cpp\",\"status\":\"brand-new\"}]},"
+                  "{\"key\":\"x\"}, 3]}"))))
+    (should (eq (rbx-time-inspection-runs-source inspection) 'last-run))
+    (should-not (rbx-time-inspection-effective inspection))
+    (should-not (rbx-time-inspection-last-run inspection))
+    (let ((rows (rbx-time-inspection-rows inspection)))
+      (should (= (length rows) 1))
+      (let ((base (car rows)))
+        (should-not (rbx-time-inspect-row-group base))
+        (should-not (rbx-time-inspect-row-check base))
+        (should (equal (mapcar #'rbx-time-solution-check-status
+                               (rbx-time-inspect-row-solutions base))
+                       '(brand-new)))))))
 
 (provide 'rbx-model-test)
 ;;; rbx-model-test.el ends here
