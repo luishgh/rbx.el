@@ -20,8 +20,9 @@ mirrors.
 - Keep one row per feature. Finer detail belongs in the code, tests or issue.
 - Update it during an rbx bump (see the `bump-rbx` skill), and in the change that
   closes a `proposed` issue.
-- `D1` below stands for: *Execution stays in the terminal; rbx.el never invokes
-  `rbx`, with `rbx vars` as the only exception (`AGENTS.md`).*
+- `D1` below stands for: *Execution stays in the terminal; rbx.el only calls
+  rbx commands that write nothing, print structured output and are meant for
+  an editor: `rbx vars` and `rbx time-inspect` (`AGENTS.md`).*
 
 ## Run view
 
