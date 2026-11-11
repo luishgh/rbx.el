@@ -5,13 +5,17 @@ This repository implements an Emacs 30 package inspired by the official
 
 ## Product principles
 
-- Keep execution terminal-first.  The package is a pure reader: never invoke
+- Keep execution terminal-first.  The package is a reader: do not invoke
   `rbx`, because even read-looking CLI invocations can mutate or invalidate its
-  cache.  The sole exception is `rbx-statement.el`'s `rbx vars`/`rbx vars
-  --render`, which rbx itself documents as read-only and idempotent,
-  specifically for a live editor to call while a package is being edited —
-  mirroring how the VS Code extension calls the same commands.  Do not extend
-  this exception to any other command.
+  cache.  An rbx command may be run only when it meets all three of these:
+  it writes nothing to the package (or rbx's caches), it returns structured
+  output, and rbx means it for an editor to call — mirroring how the VS Code
+  extension calls it.  The commands that meet this today are `rbx vars` /
+  `rbx vars --render` (`rbx-statement.el`) and `rbx time-inspect` without its
+  edit flags (the time profile view).  `rbx-cli.el` holds the allowlist and
+  every invocation goes through it.  Anything that runs solutions, builds,
+  or edits files stays in the terminal; add a command to the allowlist only
+  after checking both its code and its effect on disk against this rule.
 - Treat `rbx`'s on-disk artifacts as the integration contract.  Keep layout
   knowledge centralized and parse version-skewed YAML tolerantly.
 - Convert YAML artifacts to compact JSON with the external `yq` runtime

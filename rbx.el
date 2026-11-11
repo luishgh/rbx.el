@@ -13,10 +13,11 @@
 
 ;; Inspect the files produced by `rbx run' and `rbx build' without leaving
 ;; Emacs.  The package follows the official VS Code extension's terminal-first
-;; philosophy: it never invokes rbx and never writes generated artifacts,
-;; with one deliberate exception -- `rbx-statement.el' calls the read-only
-;; `rbx vars' to show statement variable hints, exactly as the VS Code
-;; extension does.
+;; philosophy: it never runs rbx for you and never writes generated
+;; artifacts.  It only calls the read-only rbx commands meant for an editor
+;; -- `rbx vars' for statement variable hints and `rbx time-inspect' for the
+;; time profile view -- exactly as the VS Code extension does (see
+;; `rbx-cli.el').
 ;;
 ;; Run `M-x rbx-dispatch' for the main Transient menu, or call
 ;; `rbx-run-view' and `rbx-testset-view' directly.  Enable `rbx-mode' in

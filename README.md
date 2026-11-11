@@ -7,12 +7,12 @@ compiler findings, and native read-only file and diff buffers for testcase
 inspection.
 
 The package follows the same terminal-first rule as the official extension:
-**it never invokes `rbx`**, with one deliberate, narrow exception. Run
-`rbx build` or `rbx run` yourself; Emacs watches the package and renders the
-artifacts that land on disk. The exception is statement variable hints: `rbx
-vars` and `rbx vars --render` are read-only and idempotent by rbx's own
-design, safe to call while a package is being edited, and the VS Code
-extension calls them the same way.
+**it never runs `rbx` for you**. Run `rbx build`, `rbx run` or `rbx time`
+yourself; Emacs watches the package and renders the artifacts that land on
+disk. It only calls the rbx commands that write nothing, print structured
+output and exist for an editor to call, the same ones the VS Code extension
+calls: `rbx vars` and `rbx vars --render` for statement variable hints, and
+`rbx time-inspect` for the time profile view.
 
 ## Features
 

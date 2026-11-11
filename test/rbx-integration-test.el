@@ -204,8 +204,8 @@ int main() {
   "Return non-nil when the real rbx binary offers a `vars' command.
 
 Older rbx releases pinned by `rbx-requirements.txt' may predate `rbx
-vars'; rbx-statement.el's sole exception to \"never invoke rbx\" is then
-simply unexercised, not broken, so callers should skip rather than fail."
+vars'; that allowlisted command is then simply unexercised, not
+broken, so callers should skip rather than fail."
   (condition-case nil
       (progn (rbx-integration-test--run directory "vars" "--help") t)
     (error nil)))
