@@ -127,68 +127,6 @@
     (should (= (length refs) 2))
     (should (equal (mapcar #'rbx-statement-var-ref-text refs) '("200" "1")))))
 
-(ert-deftest rbx-statement-run-delegates-to-rbx-run-process-when-resolved ()
-  (rbx-test-with-directory root
-    (let (delegated-args result)
-      (cl-letf (((symbol-function 'rbx-resolve-executable)
-                (lambda (configured fallback given-root)
-                  (should (equal configured rbx-program))
-                  (should (equal fallback "rbx"))
-                  (should (equal given-root root))
-                  "/usr/bin/rbx"))
-               ((symbol-function 'rbx-run-process)
-                (lambda (given-root program args input callback)
-                  (setq delegated-args (list given-root program args input))
-                  (funcall callback "out" "" 0))))
-        (rbx-statement--run root '("vars" "--json") "in"
-                           (lambda (stdout stderr exit-code)
-                             (setq result (list stdout stderr exit-code))))
-        (should (equal delegated-args (list root "/usr/bin/rbx"
-                                            '("vars" "--json") "in")))
-        (should (equal result '("out" "" 0)))))))
-
-(ert-deftest rbx-statement-run-honours-a-directory-local-program ()
-  (rbx-test-with-directory root
-    (rbx-test-write root ".dir-locals.el"
-                    "((nil . ((rbx-program . \"/opt/rbx-2.3/bin/rbx\"))))")
-    (let ((enable-local-variables :all) configured)
-      ;; The caller's buffer lives elsewhere, as in a process sentinel.
-      (with-temp-buffer
-        (setq default-directory temporary-file-directory)
-        (cl-letf (((symbol-function 'rbx-resolve-executable)
-                   (lambda (program &rest _) (setq configured program) nil))
-                  ((symbol-function 'display-warning) #'ignore))
-          (rbx-statement--run root nil nil #'ignore)))
-      (should (equal configured "/opt/rbx-2.3/bin/rbx")))))
-
-(ert-deftest rbx-statement-run-honours-a-buffer-local-program ()
-  (rbx-test-with-directory root
-    (let (configured)
-      (with-temp-buffer
-        (setq default-directory (file-name-as-directory root))
-        (setq-local rbx-program "/local/rbx")
-        (cl-letf (((symbol-function 'rbx-resolve-executable)
-                   (lambda (program &rest _) (setq configured program) nil))
-                  ((symbol-function 'display-warning) #'ignore))
-          (rbx-statement--run root nil nil #'ignore)))
-      (should (equal configured "/local/rbx")))))
-
-(ert-deftest rbx-statement-run-declines-without-attempting-a-spawn ()
-  (rbx-test-with-directory root
-    (let (spawned result warned)
-      (cl-letf (((symbol-function 'rbx-resolve-executable)
-                (lambda (&rest _args) nil))
-               ((symbol-function 'rbx-run-process)
-                (lambda (&rest _args) (setq spawned t)))
-               ((symbol-function 'display-warning)
-                (lambda (&rest _args) (setq warned t))))
-        (rbx-statement--run root nil nil
-                           (lambda (stdout stderr exit-code)
-                             (setq result (list stdout stderr exit-code))))
-        (should-not spawned)
-        (should warned)
-        (should (equal result '("" "" nil)))))))
-
 (ert-deftest rbx-statement-parse-vars-with-groups-tolerates-ansi-and-noise ()
   (let ((payload (rbx-statement--parse-vars-with-groups
                   (concat "warning: something\n"
@@ -216,7 +154,7 @@
           (calls 0)
           pending-callback
           results)
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root args _input callback)
                   (cl-incf calls)
                   (should (equal args '("vars" "--json" "--groups")))
@@ -236,7 +174,7 @@
     (let ((package (rbx-package-create :root (file-name-as-directory root)
                                        :build-dir "build"))
           invocations result)
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root args _input callback)
                   (push args invocations)
                   (if (member "--groups" args)
@@ -253,7 +191,7 @@
     (let ((package (rbx-package-create :root (file-name-as-directory root)
                                        :build-dir "build"))
           (got 'unset))
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root _args _input callback)
                   (funcall callback "" "broken" 1))))
         (rbx-statement-load-vars package (lambda (p) (setq got p)))
@@ -264,7 +202,7 @@
     (let ((package (rbx-package-create :root (file-name-as-directory root)
                                        :build-dir "build"))
           (calls 0))
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root _args _input callback)
                   (cl-incf calls)
                   (funcall callback "{\"vars\":{},\"groups\":{}}" "" 0))))
@@ -282,7 +220,7 @@
                                        :build-dir "build"))
           (calls 0)
           result)
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root args input callback)
                   (cl-incf calls)
                   (should (equal args '("vars" "--render" "--target" "text")))
@@ -302,7 +240,7 @@
     (let ((package (rbx-package-create :root (file-name-as-directory root)
                                        :build-dir "build"))
           requested)
-      (cl-letf (((symbol-function 'rbx-statement--run)
+      (cl-letf (((symbol-function 'rbx-cli-run)
                 (lambda (_root _args input callback)
                   (setq requested (split-string input "\n" t))
                   (funcall callback (format "{\"%s\":\"1\"}" (car requested))

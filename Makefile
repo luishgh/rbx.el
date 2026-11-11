@@ -1,7 +1,7 @@
 EMACS ?= emacs
 PYTHON ?= python3
 BATCH = $(EMACS) -Q --batch -L . -L test
-ELISP = rbx-core.el rbx-model.el rbx-statement.el rbx-ui.el rbx.el rbx-evil.el
+ELISP = rbx-core.el rbx-model.el rbx-cli.el rbx-statement.el rbx-ui.el rbx.el rbx-evil.el
 
 # Selects which ERT tests `test` runs. Override to skip tests that need
 # capabilities a sandboxed build environment doesn't provide, e.g.
@@ -16,6 +16,7 @@ test:
 	$(BATCH) -l test/test-helper.el \
 	  -l test/rbx-core-test.el \
 	  -l test/rbx-model-test.el \
+	  -l test/rbx-cli-test.el \
 	  -l test/rbx-statement-test.el \
 	  -l test/rbx-ui-test.el \
 	  -l test/rbx-evil-test.el \
